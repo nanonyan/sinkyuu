@@ -1,5 +1,6 @@
 from flask import Flask, render_template
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -7,11 +8,18 @@ from psycopg2 import pool as pg_pool
 from contextlib import contextmanager
 from datetime import datetime
 
-load_dotenv()
+# Load .env from the directory where app.py sits (more reliable than implicit lookup)
+BASE_DIR = Path(__file__).resolve().parent
+load_dotenv(dotenv_path=BASE_DIR / '.env')
 
 DATABASE_URL = os.getenv("NEON_DATABASE_URL") or os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise RuntimeError("NEON_DATABASE_URL not set. Create a .env file or set the environment variable.")
+else:
+    # Print a masked version when in debug for easier troubleshooting
+    if os.getenv("FLASK_DEBUG", "0") == "1":
+        masked = (DATABASE_URL[:60] + '...') if len(DATABASE_URL) > 60 else DATABASE_URL
+        print("Using NEON_DATABASE_URL:", masked)
 
 # Connection pool (fallback to direct connect if pool creation fails)
 _pool = None
