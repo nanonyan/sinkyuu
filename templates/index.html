@@ -1,121 +1,180 @@
+<!--  debug用のコードです。フロント担当の方はこのフォルダを消しても構いません。-->
+
 <!DOCTYPE html>
 <html lang="ja">
 <head>
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
-	<title>データ一覧</title>
+	<title>コントロールパネル — データ一覧</title>
 	<style>
-		table { border-collapse: collapse; width: 100%; max-width: 1000px; }
-		th, td { border: 1px solid #ddd; padding: 8px; }
-		th { background: #f4f4f4; }
-		body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; padding: 20px; }
-		h1 { margin-top: 32px; }
+		/* Simplified card layout to match quiz_play.html (no gradients) */
+		html,body{height:100%;margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial;background:#f7fafc;color:#102a43}
+		.shell{width:100%;max-width:1200px;padding:20px;border-radius:8px;margin:28px auto}
+		header{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}
+		header h1{font-size:20px;margin:0;color:#102a43}
+		.controls{display:flex;gap:10px;align-items:center}
+		.btn{background:#fff;border:1px solid rgba(2,6,23,0.06);padding:8px 12px;border-radius:8px;cursor:pointer;box-shadow:0 6px 18px rgba(2,6,23,0.06)}
+		.grid{display:grid;grid-template-columns:1fr;gap:18px}
+		/* horizontal scrolling wrapper for wide tables */
+		.table-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:8px;width:100%;box-sizing:border-box}
+		.table-scroll table{display:table;min-width:max-content;width:100%}
+		.panel, .card{background:#fff;border-radius:10px;padding:16px;box-shadow:0 6px 18px rgba(2,6,23,0.06);overflow:hidden}
+		.panel h2{margin:0 0 12px;font-size:16px;color:#102a43}
+		table{width:100%;border-collapse:collapse;background:transparent}
+		thead th{background:transparent;text-align:left;padding:10px;border-bottom:1px solid rgba(2,6,23,0.06);font-weight:600}
+		tbody td{padding:10px;border-bottom:1px dashed rgba(2,6,23,0.04);color:#102a43}
+		.muted{color:rgba(11,37,69,0.6);font-size:13px}
+		.small{font-size:13px}
+		@media (max-width:900px){.grid{grid-template-columns:1fr}}
 	</style>
 </head>
 <body>
-	<h1>これはテストです。Neon x Vercelとの接続チェック用のコードです。</h1>
-	{% if error %}
-	<p style="color: red;">DB 接続エラー: {{ error }}</p>
-	{% endif %}
+	<div class="shell">
+		<header>
+			<h1>管理パネル — データ一覧</h1>
+			<div class="controls">
+				<button class="btn" onclick="location.reload()">更新</button>
+				<a class="btn" href="{{ url_for('quiz_new') }}">新しい問題</a>
+				<a class="btn" href="{{ url_for('user_new') }}">新しいユーザー</a>
+			</div>
+			<div style="margin-top:10px;display:flex;gap:8px;align-items:center">
+				<a class="btn" href="{{ url_for('quiz_play', category_id=1) }}">問題を開く</a>
+			</div>
+		</header>
 
-	<h1>スマホ動作確認</h1>
-	<a href="/test">テストページへ</a>
+		{% if error %}
+		<div class="panel" style="border:1px solid rgba(255,0,0,0.08)">
+			<p class="muted">DB 接続エラー: {{ error }}</p>
+		</div>
+		{% endif %}
 
-	<h1>問題 (quiz_questions)</h1>
-	<p><a href="{{ url_for('quiz_new') }}">▶ 新しい問題を追加</a></p>
-	{% if quiz_questions and quiz_questions|length > 0 %}
-	<table>
-		<thead>
-			<tr>
-				<th>ID</th>
-				<th>Category ID</th>
-				<th>Question</th>
-				<th>Audio Path</th>
-				<th>Difficulty</th>
-				<th>Actions</th>
-				<th>Created At</th>
-			</tr>
-		</thead>
-		<tbody>
-			{% for p in quiz_questions %}
-			<tr>
-				<td>{{ p.id }}</td>
-				<td>{{ p.category_id }}</td>
-				<td>{{ p.question_text }}</td>
-				<td>{{ p.audio_path }}</td>
-				<td>{{ p.difficulty }}</td>
-				<td>
-					<a href="{{ url_for('quiz_edit', quiz_id=p.id) }}">編集</a>
-					<form method="post" action="{{ url_for('quiz_delete', quiz_id=p.id) }}" style="display:inline" onsubmit="return confirm('本当に削除しますか？');">
-						<button type="submit">削除</button>
-					</form>
-				</td>
-				<td>{{ p.created_at }}</td>
-			</tr>
-			{% endfor %}
-		</tbody>
-	</table>
-	{% else %}
-	<p>問題テーブルのデータがありません。</p>
-	{% endif %}
+		<section class="grid" style="margin-top:18px">
+			<div class="panel">
+				<h2>問題 (quiz_questions)</h2>
+				{% if quiz_questions and quiz_questions|length > 0 %}
+				<div class="table-scroll">
+				<table>
+					<thead>
+						<tr>
+							<th>ID</th>
+							<th>Category ID</th>
+							<th>Scenario ID</th>
+							<th>Question (JP)</th>
+							<th>Question (EN)</th>
+							<th>Question (ZH)</th>
+							<th>Question (VI)</th>
+							<th>Question (HI)</th>
+							<th>Audio Path</th>
+							<th>Phonetic</th>
+							<th>Romaji</th>
+							<th>Difficulty</th>
+							<th>Question Type</th>
+							<th class="small">Created At</th>
+							<th class="small">Updated At</th>
+						</tr>
+					</thead>
+					<tbody>
+						{% for p in quiz_questions %}
+						<tr>
+							<td>{{ p.id }}</td>
+							<td>{{ p.category_id }}</td>
+							<td>{{ p.scenario_id }}</td>
+							<td>{{ p.question_text }}</td>
+							<td>{{ p.question_text_en }}</td>
+							<td>{{ p.question_text_zh }}</td>
+							<td>{{ p.question_text_vi }}</td>
+							<td>{{ p.question_text_hi }}</td>
+							<td>{{ p.audio_path }}</td>
+							<td>{{ p.phonetic }}</td>
+							<td>{{ p.romaji }}</td>
+							<td>{{ p.difficulty }}</td>
+							<td>{{ p.question_type }}</td>
+							<td class="small muted">{{ p.created_at }}</td>
+							<td class="small muted">{{ p.updated_at }}</td>
+						</tr>
+						{% endfor %}
+					</tbody>
+				</table>
+				</div>
+				{% else %}
+				<p class="muted">問題テーブルのデータがありません。</p>
+				{% endif %}
+			</div>
 
-	<h1>Users</h1>
-	<p><a href="{{ url_for('user_new') }}">▶ 新しいユーザーを追加</a></p>
-	{% if users and users|length > 0 %}
-	<table>
-		<thead>
-			<tr>
-				<th>ID</th>
-				<th>Name</th>
-				<th>Email</th>
-				<th>Created At</th>
-				<th>Actions</th>
-			</tr>
-		</thead>
-		<tbody>
-			{% for u in users %}
-			<tr>
-				<td>{{ u.id }}</td>
-				<td>{{ u.name }}</td>
-				<td>{{ u.email }}</td>
-				<td>{{ u.created_at }}</td>
-				<td>
-					<a href="{{ url_for('user_edit', user_id=u.id) }}">編集</a>
-					<form method="post" action="{{ url_for('user_delete', user_id=u.id) }}" style="display:inline" onsubmit="return confirm('本当に削除しますか？');">
-						<button type="submit">削除</button>
-					</form>
-				</td>
-			</tr>
-			{% endfor %}
-		</tbody>
-	</table>
-	{% else %}
-	<p>Users テーブルのデータがありません。</p>
-	{% endif %}
+			<div class="panel">
+				<h2>Users</h2>
+				{% if users and users|length > 0 %}
+				<div class="table-scroll">
+				<table>
+					<thead>
+						<tr>
+							<th>ID</th>
+							<th>Name</th>
+							<th>Email</th>
+						</tr>
+					</thead>
+					<tbody>
+						{% for u in users %}
+						<tr>
+							<td>{{ u.id }}</td>
+							<td>{{ u.name }}</td>
+							<td>{{ u.email }}</td>
+						</tr>
+						{% endfor %}
+					</tbody>
+				</table>
+				</div>
+				{% else %}
+				<p class="muted">Users テーブルのデータがありません。</p>
+				{% endif %}
+			</div>
+		</section>
 
-	<h1>Quiz Choices</h1>
-	{% if quiz_choices and quiz_choices|length > 0 %}
-	<table>
-		<thead>
-			<tr>
-				<th>ID</th>
-				<th>Choice Text</th>
-				<th>Is Correct</th>
-			</tr>
-		</thead>
-		<tbody>
-			{% for c in quiz_choices %}
-			<tr>
-				<td>{{ c.id }}</td>
-				<td>{{ c.choice_text }}</td>
-				<td>{{ c.is_correct }}</td>
-			</tr>
-			{% endfor %}
-		</tbody>
-	</table>
-	{% else %}
-	<p>Quiz Choices のデータがありません。</p>
-	{% endif %}
+		<section class="panel" style="margin-top:18px">
+			<h2>Quiz Choices</h2>
+			{% if quiz_choices and quiz_choices|length > 0 %}
+			<div class="table-scroll">
+				<table>
+				<thead>
+					<tr>
+						<th>ID</th>
+						<th>Question ID</th>
+						<th>Choice Text (JP)</th>
+						<th>Choice Text (EN)</th>
+						<th>Choice Text (ZH)</th>
+						<th>Choice Text (VI)</th>
+						<th>Choice Text (HI)</th>
+						<th>Is Correct</th>
+						<th>Explanation</th>
+						<th>Display Order</th>
+					</tr>
+				</thead>
+				<tbody>
+					{% for c in quiz_choices %}
+					<tr>
+						<td>{{ c.id }}</td>
+						<td>{{ c.question_id }}</td>
+						<td>{{ c.choice_text }}</td>
+						<td>{{ c.choice_text_en }}</td>
+						<td>{{ c.choice_text_zh }}</td>
+						<td>{{ c.choice_text_vi }}</td>
+						<td>{{ c.choice_text_hi }}</td>
+						<td>{{ c.is_correct }}</td>
+						<td>{{ c.explanation }}</td>
+						<td>{{ c.display_order }}</td>
+					</tr>
+					{% endfor %}
+				</tbody>
+			</table>
+				</div>
+			{% else %}
+			<p class="muted">Quiz Choices のデータがありません。</p>
+			{% endif %}
+		</section>
 
-</body>
+
+
+	</div>
+	<script src="/static/quiz-variants.js"></script>
+	</body>
 </html>

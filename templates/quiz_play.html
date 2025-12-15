@@ -1,0 +1,165 @@
+<!--  debug用のコードです。フロント担当の方はこのフォルダを消しても構いません。-->
+
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Quiz Play - カテゴリ {{ category_id }}</title>
+  <style>
+    body{font-family:Inter,system-ui,Arial;padding:20px;background:#f7fafc;color:#102a43}
+    .card{background:white;border-radius:10px;padding:16px;margin-bottom:14px;box-shadow:0 6px 18px rgba(2,6,23,0.06)}
+    .choice{display:inline-block;margin:6px 8px;padding:8px 12px;border-radius:8px;border:1px solid rgba(0,0,0,0.06);cursor:pointer;background:#fff}
+    .correct{background:#e6ffed;border-color:#66d68a}
+    .wrong{background:#ffecec;border-color:#ff6b6b}
+    .meta{font-size:13px;color:#64748b;margin-bottom:8px}
+    .debug-pre{background:#0b1220;color:#cde8ff;padding:10px;border-radius:8px;white-space:pre-wrap;max-height:240px;overflow:auto}
+    .controls{margin-bottom:12px}
+  </style>
+</head>
+<body>
+  <h1>Quiz Play — カテゴリ {{ category_id }}</h1>
+  <div class="controls">
+    <a href="{{ url_for('index') }}">管理パネルに戻る</a>
+    &nbsp;|&nbsp;
+    <label><input id="debug-toggle" type="checkbox" /> デバッグ表示 (JSON)</label>
+    &nbsp;|&nbsp;
+    <label>表示言語:
+      <select id="lang-select" style="margin-left:6px;padding:4px;border-radius:6px;border:1px solid rgba(2,6,23,0.06)">
+        <option value="jp" selected>JP</option>
+        <option value="en">EN</option>
+        <option value="hi">HI</option>
+      </select>
+    </label>
+  </div>
+
+  {% if not questions %}
+  <div class="card">該当する問題がありません。</div>
+  {% else %}
+  {% for q in questions %}
+  <div class="card" data-qid="{{ q.id }}">
+    <div class="meta">ID: {{ q.id }} &nbsp;|&nbsp; 難易度: {{ q.difficulty or 'N/A' }}</div>
+    <div class="text" 
+         data-text-jp="{{ (q.question_text or '') | e }}"
+         data-text-en="{{ (q.question_text_en or '') | e }}"
+         data-text-hi="{{ (q.question_text_hi or '') | e }}">
+      <strong>{{ q.question_text or q.question_text_en or '(no text)' }}</strong>
+    </div>
+    <div class="choices" style="margin-top:10px">
+      {% for c in q.choices %}
+      <button class="choice" data-choice-id="{{ c.id }}"
+              data-text-jp="{{ (c.choice_text or '') | e }}"
+              data-text-en="{{ (c.choice_text_en or '') | e }}"
+              data-text-hi="{{ (c.choice_text_hi or '') | e }}">{{ c.choice_text or c.choice_text_en or '(no text)' }}</button>
+      {% endfor %}
+    </div>
+    <div class="result" style="margin-top:10px;font-weight:700"></div>
+  </div>
+  {% endfor %}
+  {% endif %}
+
+  <div style="margin-top:12px">
+    {% if has_next and next_start_id %}
+      <a class="choice" href="{{ url_for('quiz_play', category_id=category_id, start_id=next_start_id) }}">次に問題へ</a>
+    {% elif has_next %}
+      <a class="choice" href="{{ url_for('quiz_play', category_id=category_id, count=count, offset=next_offset) }}">次に問題へ</a>
+    {% else %}
+      <div class="muted">問題はもうありません。終了です。</div>
+    {% endif %}
+  </div>
+
+  <pre id="debug" class="debug-pre" style="display:none">{{ questions | tojson }}</pre>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', function(){
+      // result handling: minimal JS
+      document.querySelectorAll('.choice').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          const target = e.target;
+          const parentCard = target.closest('.card');
+          const resultEl = parentCard.querySelector('.result');
+          const qid = parentCard.getAttribute('data-qid');
+          const choiceId = target.getAttribute('data-choice-id');
+
+          // prevent double-clicks
+          if (target.disabled) return;
+          target.disabled = true;
+
+          try {
+            const res = await fetch('/api/quiz/answer', {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({choice_id: Number(choiceId), question_id: Number(qid)})
+            });
+
+            if (!res.ok) {
+              const err = await res.json().catch(()=>({error:'unknown'}));
+              resultEl.textContent = '検証エラー: ' + (err.error || res.statusText);
+              resultEl.style.color = '#7f1d1d';
+              // re-enable other buttons so user can retry
+              parentCard.querySelectorAll('.choice').forEach(b=>b.disabled=false);
+              return;
+            }
+
+            const data = await res.json();
+            if (data.correct) {
+              target.classList.add('correct');
+              resultEl.textContent = '正解';
+              resultEl.style.color = '#0f5132';
+            } else {
+              target.classList.add('wrong');
+              resultEl.textContent = '不正解';
+              resultEl.style.color = '#7f1d1d';
+            }
+
+            // disable all choices for this card after server validation
+            parentCard.querySelectorAll('.choice').forEach(b=>b.disabled=true);
+
+            // show optional explanation when provided
+            if (data.explanation) {
+              const expl = document.createElement('div');
+              expl.style.marginTop = '8px';
+              expl.style.fontSize = '13px';
+              expl.textContent = data.explanation;
+              parentCard.appendChild(expl);
+            }
+
+          } catch (err) {
+            resultEl.textContent = 'サーバー接続エラー';
+            resultEl.style.color = '#7f1d1d';
+            parentCard.querySelectorAll('.choice').forEach(b=>b.disabled=false);
+            console.error(err);
+          }
+        });
+      });
+
+      // debug toggle
+      const debugToggle = document.getElementById('debug-toggle');
+      const debugPre = document.getElementById('debug');
+      debugToggle && debugToggle.addEventListener('change', function(){
+        debugPre.style.display = this.checked ? 'block' : 'none';
+      });
+
+      
+
+      // language switching (client-side, no reload)
+      const langSelect = document.getElementById('lang-select');
+      function applyLanguage(lang){
+        document.querySelectorAll('.card').forEach(card => {
+          const qTextEl = card.querySelector('.text');
+          const text = qTextEl && (qTextEl.getAttribute('data-text-' + lang) || qTextEl.getAttribute('data-text-jp') || '');
+          if(qTextEl) qTextEl.querySelector('strong').textContent = text || '(no text)';
+
+          card.querySelectorAll('.choice').forEach(btn => {
+            const txt = btn.getAttribute('data-text-' + lang) || btn.getAttribute('data-text-jp') || '';
+            btn.textContent = txt || '(no text)';
+          });
+        });
+      }
+      // initial language is JP (already rendered), but ensure consistency
+      applyLanguage('jp');
+      langSelect && langSelect.addEventListener('change', (e) => applyLanguage(e.target.value));
+    });
+  </script>
+</body>
+</html>

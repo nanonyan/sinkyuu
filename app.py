@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, flash
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
 import os
 from pathlib import Path
 from dotenv import load_dotenv
@@ -7,9 +7,8 @@ from psycopg2.extras import RealDictCursor
 from psycopg2 import pool as pg_pool
 from werkzeug.security import generate_password_hash
 from contextlib import contextmanager
-from datetime import datetime
 
-# Load .env from the directory where app.py sits (more reliable than implicit lookup)
+
 BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(dotenv_path=BASE_DIR / '.env')
 
@@ -17,12 +16,12 @@ DATABASE_URL = os.getenv("NEON_DATABASE_URL") or os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise RuntimeError("NEON_DATABASE_URL not set. Create a .env file or set the environment variable.")
 else:
-    # Print a masked version when in debug for easier troubleshooting
+    
     if os.getenv("FLASK_DEBUG", "0") == "1":
         masked = (DATABASE_URL[:60] + '...') if len(DATABASE_URL) > 60 else DATABASE_URL
         print("Using NEON_DATABASE_URL:", masked)
 
-# Connection pool (fallback to direct connect if pool creation fails)
+# 接続プール
 _pool = None
 try:
     _pool = pg_pool.SimpleConnectionPool(1, int(os.getenv("DB_MAX_CONN", "10")), DATABASE_URL, cursor_factory=RealDictCursor)
@@ -32,7 +31,7 @@ except Exception:
 
 @contextmanager
 def get_conn():
-    """Yield a DB connection; return to pool when used."""
+    # - RealDictCursor` を使って行を辞書として扱う
     if _pool:
         conn = _pool.getconn()
         try:
@@ -56,31 +55,23 @@ app.secret_key = os.getenv("FLASK_SECRET", "dev-secret")
 
 @app.route("/")
 def index():
-    quiz_questions = []
-    users = []
-    quiz_choices = []
+    # 管理用コントロールパネルをレンダリング
+    quiz_questions = users = quiz_choices = []
     error = None
-
     try:
         with get_conn() as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT id, category_id, question_text, audio_path, difficulty, created_at FROM quiz_questions"
-                )
+                cur.execute("SELECT * FROM quiz_questions")
                 quiz_questions = cur.fetchall()
-                cur.execute(
-                    "SELECT id, name, email, password_hash, created_at FROM users"
-                )
+                cur.execute("SELECT id, name, email, password_hash, created_at FROM users")
                 users = cur.fetchall()
-                cur.execute(
-                    "SELECT id, question_id, choice_text, is_correct FROM quiz_choices"
-                )
+                cur.execute("SELECT * FROM quiz_choices")
                 quiz_choices = cur.fetchall()
     except Exception as e:
         error = str(e)
 
-    def normalize(rows_list):
-        for r in rows_list:
+    def _normalize(rows):
+        for r in rows:
             ca = r.get("created_at")
             if ca and not isinstance(ca, str):
                 try:
@@ -88,11 +79,9 @@ def index():
                 except Exception:
                     r["created_at"] = str(ca)
 
-    normalize(quiz_questions)
-    normalize(users)
-    normalize(quiz_choices)
+    for lst in (quiz_questions, users, quiz_choices):
+        _normalize(lst)
 
-    # Pass quiz_questions as the template expects that variable name
     return render_template("index.html", quiz_questions=quiz_questions, users=users, quiz_choices=quiz_choices, error=error)
 
 
@@ -145,7 +134,7 @@ def quiz_edit(quiz_id):
     try:
         with get_conn() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT id, category_id, question_text, audio_path, difficulty FROM quiz_questions WHERE id=%s", (quiz_id,))
+                cur.execute("SELECT * FROM quiz_questions WHERE id=%s", (quiz_id,))
                 quiz = cur.fetchone()
     except Exception as ex:
         flash(f"読み込みに失敗しました: {ex}", "danger")
@@ -241,9 +230,190 @@ def user_delete(user_id):
         flash(f"削除に失敗しました: {ex}", "danger")
     return redirect(url_for("index"))
 
-@app.route("/test")
-def test():
-    return render_template("[index.html")
+
+
+@app.route("/api/quiz/category/<int:category_id>")
+def quizzes_by_category(category_id):
+        # 指定カテゴリの問題一覧を JSON で返す。
+        #これがAPI リンクは/api/quiz/category/<int:category_id>" なぜかid1に全部問題が入っている？
+        # レスポンス構造例:
+        #   { "category_id": <id>, "questions": [ {<questionのフィールド>,
+        #         "choices": [ {<choiceのフィールド>}, ... ] }, ... ] }
+    try:
+        with get_conn() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT * FROM quiz_questions WHERE category_id=%s", (category_id,))
+                questions = cur.fetchall()
+                for q in questions:
+                    cur.execute(
+                        "SELECT * FROM quiz_choices WHERE question_id=%s ORDER BY display_order",
+                        (q.get("id"),),
+                    )
+                    q["choices"] = cur.fetchall()
+    except Exception as ex:
+        return jsonify({"error": str(ex)}), 500
+
+    def _norm_rows(rows):
+        for r in rows:
+            for k in ("created_at", "updated_at"):
+                v = r.get(k)
+                if v and not isinstance(v, str):
+                    try:
+                        r[k] = v.isoformat()
+                    except Exception:
+                        r[k] = str(v)
+
+    _norm_rows(questions)
+    return jsonify({"category_id": category_id, "questions": questions})
+
+
+@app.route("/api/quiz/category/<int:category_id>/variants")
+def quiz_variants(category_id):
+    #1問ずつ表示さすための設計　これもフロント担当任せなのでこのコードはデバッグ用
+    count = 1
+
+    try:
+        with get_conn() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT * FROM quiz_questions WHERE category_id=%s ORDER BY id LIMIT %s", (category_id, count))
+                questions = cur.fetchall()
+                for q in questions:
+                    cur.execute("SELECT * FROM quiz_choices WHERE question_id=%s ORDER BY display_order", (q.get("id"),))
+                    q["choices"] = cur.fetchall()
+    except Exception as ex:
+        return jsonify({"error": str(ex)}), 500
+
+    def _norm(rows):
+        for r in rows:
+            for k in ("created_at", "updated_at"):
+                v = r.get(k)
+                if v and not isinstance(v, str):
+                    try:
+                        r[k] = v.isoformat()
+                    except Exception:
+                        r[k] = str(v)
+
+    _norm(questions)
+    return jsonify({"category_id": category_id, "count": len(questions), "questions": questions})
+
+
+@app.route('/api/quiz/answer', methods=('POST',))
+def quiz_answer():
+    # 指定された `choice_id` が正解かどうかをサーバー側で検証　正誤判定のAPI
+    payload = request.get_json(silent=True) or {}
+    choice_id = payload.get('choice_id')
+    question_id = payload.get('question_id')
+
+    if not choice_id:
+        return jsonify({'error': 'choice_id is required'}), 400
+
+    try:
+        with get_conn() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT id, question_id, is_correct, explanation FROM quiz_choices WHERE id=%s", (choice_id,))
+                row = cur.fetchone()
+                if not row:
+                    return jsonify({'error': 'choice not found'}), 404
+
+                if question_id is not None and int(row.get('question_id')) != int(question_id):
+                    return jsonify({'error': 'choice does not belong to the provided question_id'}), 400
+
+                correct = bool(row.get('is_correct'))
+                return jsonify({'choice_id': row.get('id'), 'question_id': row.get('question_id'), 'correct': correct, 'explanation': row.get('explanation')})
+    except Exception as ex:
+        return jsonify({'error': str(ex)}), 500
+
+
+
+@app.route("/quiz/play/<int:category_id>")
+def quiz_play(category_id):
+    # 1ページに1問表示
+    try:
+        count = int(request.args.get("count", 1))
+    except Exception:
+        count = 1
+
+    start_id = request.args.get('start_id')
+    try:
+        offset = int(request.args.get("offset", 0))
+    except Exception:
+        offset = 0
+
+    questions = []
+    has_next = False
+    next_start_id = None
+    try:
+        with get_conn() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                if start_id is not None:
+                    try:
+                        sid = int(start_id)
+                    except Exception:
+                        sid = None
+                    if sid is not None:
+                        # 指定した start_id 以上の最初の問題を取得
+                        cur.execute("SELECT * FROM quiz_questions WHERE category_id=%s AND id >= %s ORDER BY id LIMIT 1", (category_id, sid))
+                        questions = cur.fetchall()
+                        # 取得した問題に対する選択肢を取得
+                        for q in questions:
+                            cur.execute("SELECT * FROM quiz_choices WHERE question_id=%s ORDER BY display_order", (q.get("id"),))
+                            q["choices"] = cur.fetchall()
+                        # 次の問題の id を決定
+                        if questions:
+                            cur.execute("SELECT id FROM quiz_questions WHERE category_id=%s AND id > %s ORDER BY id LIMIT 1", (category_id, questions[0].get('id')))
+                            nx = cur.fetchone()
+                            if nx:
+                                has_next = True
+                                next_start_id = nx.get('id')
+                    else:
+                        # start_id が整数でない場合は offset ベースの挙動にフォールバック
+                        start_id = None
+                if start_id is None:
+                    # 次ページが存在するか判断するために1件多く取得する
+                    cur.execute("SELECT * FROM quiz_questions WHERE category_id=%s ORDER BY id LIMIT %s OFFSET %s", (category_id, count + 1, offset))
+                    fetched = cur.fetchall()
+                    has_next = len(fetched) > count
+                    questions = fetched[:count]
+                    for q in questions:
+                        cur.execute("SELECT * FROM quiz_choices WHERE question_id=%s ORDER BY display_order", (q.get("id"),))
+                        q["choices"] = cur.fetchall()
+                    if has_next:
+                        next_start_id = fetched[count].get('id')
+    except Exception as ex:
+        flash(f"読み込みに失敗しました: {ex}", "danger")
+        return redirect(url_for("index"))
+
+    # 日時を正規化してテンプレートへ渡す
+    for r in questions:
+        ca = r.get("created_at")
+        ua = r.get("updated_at")
+        if ca and not isinstance(ca, str):
+            try:
+                r["created_at"] = ca.isoformat()
+            except Exception:
+                r["created_at"] = str(ca)
+        if ua and not isinstance(ua, str):
+            try:
+                r["updated_at"] = ua.isoformat()
+            except Exception:
+                r["updated_at"] = str(ua)
+
+    # セキュリティのため、テンプレートへ渡す前に選択肢から `is_correct` を削除
+    safe_questions = []
+    for q in questions:
+        q_copy = dict(q)
+        safe_choices = []
+        for c in q.get('choices', []):
+            c_copy = dict(c)
+            c_copy.pop('is_correct', None)
+            safe_choices.append(c_copy)
+        q_copy['choices'] = safe_choices
+        safe_questions.append(q_copy)
+
+  
+    next_offset = offset + count
+
+    return render_template("quiz_play.html", category_id=category_id, questions=safe_questions, count=count, offset=offset, has_next=has_next, next_offset=next_offset, next_start_id=next_start_id)
 
 
 if __name__ == "__main__":
