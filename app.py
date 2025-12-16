@@ -8,20 +8,15 @@ from psycopg2 import pool as pg_pool
 from werkzeug.security import generate_password_hash
 from contextlib import contextmanager
 
-
+# Load .env
 BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(dotenv_path=BASE_DIR / '.env')
 
 DATABASE_URL = os.getenv("NEON_DATABASE_URL") or os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise RuntimeError("NEON_DATABASE_URL not set. Create a .env file or set the environment variable.")
-else:
-    
-    if os.getenv("FLASK_DEBUG", "0") == "1":
-        masked = (DATABASE_URL[:60] + '...') if len(DATABASE_URL) > 60 else DATABASE_URL
-        print("Using NEON_DATABASE_URL:", masked)
 
-# 接続プール
+# Connection pool (fallback)
 _pool = None
 try:
     _pool = pg_pool.SimpleConnectionPool(1, int(os.getenv("DB_MAX_CONN", "10")), DATABASE_URL, cursor_factory=RealDictCursor)
@@ -31,7 +26,6 @@ except Exception:
 
 @contextmanager
 def get_conn():
-    # - RealDictCursor` を使って行を辞書として扱う
     if _pool:
         conn = _pool.getconn()
         try:
@@ -55,7 +49,11 @@ app.secret_key = os.getenv("FLASK_SECRET", "dev-secret")
 
 @app.route("/")
 def index():
-    # 管理用コントロールパネルをレンダリング
+    return render_template("index.html")
+
+
+@app.route("/admin")
+def admin():
     quiz_questions = users = quiz_choices = []
     error = None
     try:
@@ -82,7 +80,7 @@ def index():
     for lst in (quiz_questions, users, quiz_choices):
         _normalize(lst)
 
-    return render_template("index.html", quiz_questions=quiz_questions, users=users, quiz_choices=quiz_choices, error=error)
+    return render_template("admin.html", quiz_questions=quiz_questions, users=users, quiz_choices=quiz_choices, error=error)
 
 
 # --- CRUD routes for quiz_questions -------------------------------------------------
@@ -105,7 +103,6 @@ def quiz_new():
         except Exception as ex:
             flash(f"作成に失敗しました: {ex}", "danger")
         return redirect(url_for("index"))
-    # GET
     return render_template("quiz_form.html", quiz=None)
 
 
@@ -129,7 +126,6 @@ def quiz_edit(quiz_id):
             flash(f"更新に失敗しました: {ex}", "danger")
         return redirect(url_for("index"))
 
-    # GET: load existing
     quiz = None
     try:
         with get_conn() as conn:
@@ -231,14 +227,8 @@ def user_delete(user_id):
     return redirect(url_for("index"))
 
 
-
 @app.route("/api/quiz/category/<int:category_id>")
 def quizzes_by_category(category_id):
-        # 指定カテゴリの問題一覧を JSON で返す。
-        #これがAPI リンクは/api/quiz/category/<int:category_id>" なぜかid1に全部問題が入っている？
-        # レスポンス構造例:
-        #   { "category_id": <id>, "questions": [ {<questionのフィールド>,
-        #         "choices": [ {<choiceのフィールド>}, ... ] }, ... ] }
     try:
         with get_conn() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -269,9 +259,7 @@ def quizzes_by_category(category_id):
 
 @app.route("/api/quiz/category/<int:category_id>/variants")
 def quiz_variants(category_id):
-    #1問ずつ表示さすための設計　これもフロント担当任せなのでこのコードはデバッグ用
     count = 1
-
     try:
         with get_conn() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -299,7 +287,6 @@ def quiz_variants(category_id):
 
 @app.route('/api/quiz/answer', methods=('POST',))
 def quiz_answer():
-    # 指定された `choice_id` が正解かどうかをサーバー側で検証　正誤判定のAPI
     payload = request.get_json(silent=True) or {}
     choice_id = payload.get('choice_id')
     question_id = payload.get('question_id')
@@ -324,10 +311,8 @@ def quiz_answer():
         return jsonify({'error': str(ex)}), 500
 
 
-
 @app.route("/quiz/play/<int:category_id>")
 def quiz_play(category_id):
-    # 1ページに1問表示
     try:
         count = int(request.args.get("count", 1))
     except Exception:
@@ -351,14 +336,11 @@ def quiz_play(category_id):
                     except Exception:
                         sid = None
                     if sid is not None:
-                        # 指定した start_id 以上の最初の問題を取得
                         cur.execute("SELECT * FROM quiz_questions WHERE category_id=%s AND id >= %s ORDER BY id LIMIT 1", (category_id, sid))
                         questions = cur.fetchall()
-                        # 取得した問題に対する選択肢を取得
                         for q in questions:
                             cur.execute("SELECT * FROM quiz_choices WHERE question_id=%s ORDER BY display_order", (q.get("id"),))
                             q["choices"] = cur.fetchall()
-                        # 次の問題の id を決定
                         if questions:
                             cur.execute("SELECT id FROM quiz_questions WHERE category_id=%s AND id > %s ORDER BY id LIMIT 1", (category_id, questions[0].get('id')))
                             nx = cur.fetchone()
@@ -366,10 +348,8 @@ def quiz_play(category_id):
                                 has_next = True
                                 next_start_id = nx.get('id')
                     else:
-                        # start_id が整数でない場合は offset ベースの挙動にフォールバック
                         start_id = None
                 if start_id is None:
-                    # 次ページが存在するか判断するために1件多く取得する
                     cur.execute("SELECT * FROM quiz_questions WHERE category_id=%s ORDER BY id LIMIT %s OFFSET %s", (category_id, count + 1, offset))
                     fetched = cur.fetchall()
                     has_next = len(fetched) > count
@@ -383,7 +363,6 @@ def quiz_play(category_id):
         flash(f"読み込みに失敗しました: {ex}", "danger")
         return redirect(url_for("index"))
 
-    # 日時を正規化してテンプレートへ渡す
     for r in questions:
         ca = r.get("created_at")
         ua = r.get("updated_at")
@@ -398,7 +377,6 @@ def quiz_play(category_id):
             except Exception:
                 r["updated_at"] = str(ua)
 
-    # セキュリティのため、テンプレートへ渡す前に選択肢から `is_correct` を削除
     safe_questions = []
     for q in questions:
         q_copy = dict(q)
@@ -410,7 +388,6 @@ def quiz_play(category_id):
         q_copy['choices'] = safe_choices
         safe_questions.append(q_copy)
 
-  
     next_offset = offset + count
 
     return render_template("quiz_play.html", category_id=category_id, questions=safe_questions, count=count, offset=offset, has_next=has_next, next_offset=next_offset, next_start_id=next_start_id)
