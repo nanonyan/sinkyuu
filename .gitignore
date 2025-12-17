@@ -13,6 +13,9 @@ env/
 .env
 .env.*
 
+# Google OAuth secrets
+client_secret.json
+
 # Distribution / packaging
 build/
 dist/
@@ -24,6 +27,7 @@ dist/
 # Logs and databases
 *.log
 *.sqlite3
+*.db
 
 # IDEs and editors
 .vscode/
@@ -35,5 +39,6 @@ dist/
 # Wheel and pip
 pip-wheel-metadata/
 
-# Local database files
-*.db
+# Flask instance / config
+instance/
+config.py

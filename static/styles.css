@@ -971,7 +971,7 @@ body {
   color: #ffffff;
 }
 
-.question button[type="submit"] {
+.question .answer-submit {
   width: 100%;
   max-width: 360px;
   background-color: #a4ce00;
@@ -991,8 +991,8 @@ body {
   background-color: #a4ce00;
 }
 
-.question .disabled {
-  background-color: #cccccc !important;
+.question .answer-submit.disabled {
+  background-color: #cccccc;
   cursor: not-allowed;
 }
 

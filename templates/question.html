@@ -12,7 +12,7 @@
       <h1 class="question-number">Q1</h1>
 
       <div class="question-box">
-        <p class="question-text">お客様に商品を渡す時、何と言いますか？</p>
+        <p class="question-text">{{ question.question_text }}</p>
 
         <img
           src="/static/img/cashier.png"
@@ -20,52 +20,37 @@
           class="question-image"
         />
       </div>
-      <a class="answer-btn" href="#">
+
+      {% for choice in choices %}
+      <a class="answer-btn" href="#" data-choice-id="{{ choice.id }}">
         <div class="answer-text">
-          <h2>はい、どうぞ</h2>
+          <h2>{{ choice.choice_text }}</h2>
         </div>
       </a>
-      <a class="answer-btn" href="#">
-        <div class="answer-text">
-          <h2>やめてください</h2>
-        </div>
-      </a>
-      <a class="answer-btn" href="#">
-        <div class="answer-text">
-          <h2>だめです</h2>
-        </div>
-      </a>
-      <a class="answer-btn" href="#">
-        <div class="answer-text">
-          <h2>いりません</h2>
-        </div>
-      </a>
+      {% endfor %}
+
       <button
-        type="submit"
+        type="button"
         id="answerBtn"
-        .
-        onclick=""
-        class="disabled"
+        class="answer-submit disabled"
         disabled
       >
         Answer
       </button>
 
       <script>
-        const levelButtons = document.querySelectorAll(".answer-btn");
-        const nextBtn = document.getElementById("answerBtn");
-        const apiKey = "YOUR_API_KEY";
-        const endpoint = "https://sinkyuu.vercel.app/api/quiz/category/1";
+        const answerButtons = document.querySelectorAll(".answer-btn");
+        const answerBtn = document.getElementById("answerBtn");
+        let selectedChoiceId = null;
 
-        levelButtons.forEach((btn) => {
+        answerButtons.forEach((btn) => {
           btn.addEventListener("click", (e) => {
             e.preventDefault();
 
-            // すでに選ばれているものを解除
-            levelButtons.forEach((b) => b.classList.remove("selected"));
+            answerButtons.forEach((b) => b.classList.remove("selected"));
 
-            // クリックしたものを選択状態に
             btn.classList.add("selected");
+            selectedChoiceId = btn.dataset.choiceId;
 
             answerBtn.classList.remove("disabled");
             answerBtn.disabled = false;
