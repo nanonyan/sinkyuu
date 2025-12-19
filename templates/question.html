@@ -8,7 +8,11 @@
   </head>
 
   <body>
-    <div class="question" style="background-color: #faf8f2">
+    <div
+      class="question"
+      style="background-color: #faf8f2"
+      data-correct-id="{{ question.correct_choice_id }}"
+    >
       <h1 class="question-number">Q1</h1>
 
       <div class="question-box">
@@ -38,9 +42,23 @@
         Answer
       </button>
 
+      <div id="resultBox" class="result-box hidden">
+        <span id="resultText" class="result-text"></span>
+
+        <div class="result-actions">
+          <button class="result-btn explanation-btn">Explanation</button>
+          <button class="result-btn next-btn">Next Stage</button>
+        </div>
+      </div>
+
       <script>
         const answerButtons = document.querySelectorAll(".answer-btn");
         const answerBtn = document.getElementById("answerBtn");
+        const resultBox = document.getElementById("resultBox");
+
+        const correctChoiceId =
+          document.querySelector(".question").dataset.correctId;
+
         let selectedChoiceId = null;
 
         answerButtons.forEach((btn) => {
@@ -54,6 +72,32 @@
 
             answerBtn.classList.remove("disabled");
             answerBtn.disabled = false;
+          });
+        });
+
+        const resultText = document.getElementById("resultText");
+
+        answerBtn.addEventListener("click", () => {
+          resultBox.classList.remove("hidden", "correct", "wrong");
+
+          const selectedBtn = document.querySelector(
+            `.answer-btn[data-choice-id="${selectedChoiceId}"]`
+          );
+
+          if (selectedChoiceId === correctChoiceId) {
+            resultBox.classList.add("correct");
+            resultText.textContent = "正解！";
+            selectedBtn.classList.add("correct");
+          } else {
+            resultBox.classList.add("wrong");
+            resultText.textContent = "不正解！";
+            selectedBtn.classList.add("wrong");
+          }
+
+          // 再操作防止
+          answerBtn.disabled = true;
+          answerButtons.forEach((btn) => {
+            btn.style.pointerEvents = "none";
           });
         });
       </script>

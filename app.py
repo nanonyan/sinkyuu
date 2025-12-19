@@ -279,8 +279,8 @@ def level_to_int(level):
 
 @app.route("/question")
 def question():
-    genre = request.args.get("genre")   # Cashier service
-    level = request.args.get("level")   # Easy
+    genre = request.args.get("genre")   # 例: レジ
+    level = request.args.get("level")   # Easy / Normal / Hard
 
     if not genre or not level:
         return "パラメータが不足しています"
@@ -318,23 +318,40 @@ def question():
                 "question.html",
                 question={"question_text": "問題が見つかりません"},
                 choices=[]
-        )
+            )
 
-        # ② 選択肢を取得
+        # ② 選択肢（正解フラグ含む）を取得
         cur.execute("""
             SELECT
                 id,
-                choice_text
+                choice_text,
+                is_correct
             FROM quiz_choices
             WHERE question_id = %s
             ORDER BY id
         """, (question["id"],))
 
-        choices = cur.fetchall()
+        rows = cur.fetchall()
+
+    # ③ correct_choice_id を決定
+    correct_choice_id = None
+    choices = []
+
+    for row in rows:
+        choices.append({
+            "id": row["id"],
+            "choice_text": row["choice_text"]
+        })
+        if row["is_correct"]:
+            correct_choice_id = row["id"]
 
     return render_template(
         "question.html",
-        question=question,
+        question={
+            "id": question["id"],
+            "question_text": question["question_text"],
+            "correct_choice_id": correct_choice_id
+        },
         choices=choices
     )
 
