@@ -277,83 +277,125 @@ def level_to_int(level):
         "Difficult": 3
     }.get(level)
 
-@app.route("/question")
+@app.route("/question", methods=["GET", "POST"])
 def question():
-    genre = request.args.get("genre")   # 例: レジ
-    level = request.args.get("level")   # Easy / Normal / Hard
+    genre_en = request.args.get("genre")
+    level = request.args.get("level")
+    reset = request.args.get("reset")
 
-    if not genre or not level:
+    if not genre_en or not level:
         return "パラメータが不足しています"
+
+    if reset == "1":
+        session.clear()
 
     level_map = {
         "Easy": 1,
         "Normal": 2,
-        "Hard": 3
+        "Difficult": 3
     }
     difficulty = level_map.get(level)
-
     if difficulty is None:
         return "不正なレベルです"
 
-    conn = get_db_connection()
+    # =========================
+    # 初期化
+    # =========================
+    if "used_question_ids" not in session:
+        session["used_question_ids"] = []
+        session["question_count"] = 0
+        session["correct_count"] = 0
 
+    # =========================
+    # POST（Next）
+    # =========================
+    if request.method == "POST":
+        question_id = int(request.form.get("question_id"))
+        is_correct = request.form.get("is_correct")
+
+        session["used_question_ids"].append(question_id)
+        session["question_count"] += 1
+        
+        if is_correct == "1":
+            session["correct_count"] += 1
+
+        return redirect(url_for("question", genre=genre_en, level=level))
+
+    conn = get_db_connection()
     with conn.cursor(cursor_factory=RealDictCursor) as cur:
-        # ① 問題を1問取得
+
+        # =========================
+        # 残り問題チェック
+        # =========================
         cur.execute("""
             SELECT
                 q.id,
-                q.question_text
+                q.question_text,
+                q.explanation,
+                c.name AS category_name,
+                ci.image_data
             FROM quiz_questions q
-            JOIN quiz_categories cat ON q.category_id = cat.id
-            WHERE cat.name = %s
-              AND q.difficulty = %s
+            JOIN quiz_categories c 
+                ON q.category_id = c.id
+            LEFT JOIN category_images ci
+                ON ci.category_id = c.id
+            WHERE c.name_en = %s
+                AND q.difficulty = %s
+                AND q.id NOT IN %s
             ORDER BY q.id
             LIMIT 1
-        """, (genre, difficulty))
+        """, (
+            genre_en,
+            difficulty,
+            tuple(session["used_question_ids"]) or (0,)
+        ))
 
         question = cur.fetchone()
 
         if not question:
+            total = session.get("question_count", 0)
+            correct = session.get("correct_count", 0)
+
+            #session.clear()
+
             return render_template(
                 "question.html",
-                question={"question_text": "問題が見つかりません"},
-                choices=[]
+                finished=True,
+                total=total,
+                correct=correct,
+                genre=genre_en,
+                level=level
             )
 
-        # ② 選択肢（正解フラグ含む）を取得
+        # 選択肢
         cur.execute("""
-            SELECT
-                id,
-                choice_text,
-                is_correct
+            SELECT id, choice_text, is_correct
             FROM quiz_choices
             WHERE question_id = %s
             ORDER BY id
         """, (question["id"],))
+        choices = cur.fetchall()
 
-        rows = cur.fetchall()
-
-    # ③ correct_choice_id を決定
-    correct_choice_id = None
-    choices = []
-
-    for row in rows:
-        choices.append({
-            "id": row["id"],
-            "choice_text": row["choice_text"]
-        })
-        if row["is_correct"]:
-            correct_choice_id = row["id"]
+    correct_choice_id = next(c["id"] for c in choices if c["is_correct"])
 
     return render_template(
         "question.html",
+        finished=False,
         question={
             "id": question["id"],
+            "number": session["question_count"] + 1,
             "question_text": question["question_text"],
+            "correct_choice_id": correct_choice_id,
+            "explanation": question["explanation"],
+            "image_url": question["image_data"],
             "correct_choice_id": correct_choice_id
         },
-        choices=choices
+        choices=choices,
+        genre=genre_en,
+        level=level
     )
+
+
 
 @app.route("/debug-categories")
 def debug_categories():

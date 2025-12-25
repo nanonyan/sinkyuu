@@ -8,99 +8,174 @@
   </head>
 
   <body>
-    <div
-      class="question"
-      style="background-color: #faf8f2"
-      data-correct-id="{{ question.correct_choice_id }}"
-    >
-      <h1 class="question-number">Q1</h1>
+    {% if finished %}
+
+    <!-- ================= Result画面 ================= -->
+    <div class="question result-page">
+      <h1>Result</h1>
+
+      <div class="result-score">
+        <span class="score-correct">{{ correct }}</span>
+        <span class="score-slash">/</span>
+        <span class="score-total">{{ total }}</span>
+      </div>
+
+      <div class="result-buttons">
+        <a
+          href="{{ url_for('question', genre=genre, level=level, reset=1) }}"
+          class="answer-submit result-btn"
+        >
+          Try Again
+        </a>
+
+        <a href="/select" class="answer-submit result-btn"> Select Stage </a>
+      </div>
+    </div>
+
+    {% else %}
+
+    <!-- ================= 問題画面 ================= -->
+    <div class="question" data-correct-id="{{ question.correct_choice_id }}">
+      <h1 class="question-number">Q{{ question.number }}</h1>
 
       <div class="question-box">
         <p class="question-text">{{ question.question_text }}</p>
 
+        {% if question.image_url %}
         <img
-          src="/static/img/cashier.png"
-          alt="レジ対応のイラスト"
+          src="{{ question.image_url }}"
+          alt="question image"
           class="question-image"
         />
+        {% endif %}
       </div>
 
       {% for choice in choices %}
       <a class="answer-btn" href="#" data-choice-id="{{ choice.id }}">
-        <div class="answer-text">
-          <h2>{{ choice.choice_text }}</h2>
-        </div>
+        <h2>{{ choice.choice_text }}</h2>
       </a>
       {% endfor %}
 
-      <button
-        type="button"
-        id="answerBtn"
-        class="answer-submit disabled"
-        disabled
-      >
+      <button id="answerBtn" class="answer-submit disabled" disabled>
         Answer
       </button>
 
+      <!-- ===== 正解 / 不正解 表示 ===== -->
       <div id="resultBox" class="result-box hidden">
         <span id="resultText" class="result-text"></span>
 
         <div class="result-actions">
-          <button class="result-btn explanation-btn">Explanation</button>
-          <button class="result-btn next-btn">Next Stage</button>
+          <button
+            type="button"
+            id="explanationBtn"
+            class="result-btn explanation-btn"
+          >
+            Explanation
+          </button>
+
+          <form method="post">
+            <input type="hidden" name="question_id" value="{{ question.id }}" />
+            <input
+              type="hidden"
+              name="is_correct"
+              id="isCorrectInput"
+              value=""
+            />
+            <button type="submit" class="result-btn next-btn">
+              Next Stage
+            </button>
+          </form>
         </div>
       </div>
+    </div>
 
-      <script>
-        const answerButtons = document.querySelectorAll(".answer-btn");
-        const answerBtn = document.getElementById("answerBtn");
-        const resultBox = document.getElementById("resultBox");
+    <!-- ================= Explanation Modal ================= -->
+    <div id="explainModal" class="explain-modal hidden">
+      <div class="explain-modal-content">
+        <h2>Explanation</h2>
+        <p id="explainText">{{ question.explanation }}</p>
 
-        const correctChoiceId =
-          document.querySelector(".question").dataset.correctId;
+        <div class="explain-footer">
+          <button id="closeExplain" class="explain-close-btn">close</button>
+        </div>
+      </div>
+    </div>
 
-        let selectedChoiceId = null;
+    <!-- ================= JavaScript ================= -->
+    <script>
+      const buttons = document.querySelectorAll(".answer-btn");
+      const answerBtn = document.getElementById("answerBtn");
+      const resultBox = document.getElementById("resultBox");
+      const resultText = document.getElementById("resultText");
+      const correctId = document.querySelector(".question").dataset.correctId;
 
-        answerButtons.forEach((btn) => {
-          btn.addEventListener("click", (e) => {
-            e.preventDefault();
+      const explanationBtn = document.getElementById("explanationBtn");
+      const explainModal = document.getElementById("explainModal");
+      const closeExplain = document.getElementById("closeExplain");
+      const isCorrectInput = document.getElementById("isCorrectInput");
 
-            answerButtons.forEach((b) => b.classList.remove("selected"));
+      let selectedId = null;
+      let answered = false;
 
-            btn.classList.add("selected");
-            selectedChoiceId = btn.dataset.choiceId;
+      /* 選択 */
+      buttons.forEach((btn) => {
+        btn.addEventListener("click", (e) => {
+          e.preventDefault();
+          if (answered) return;
 
-            answerBtn.classList.remove("disabled");
-            answerBtn.disabled = false;
-          });
+          buttons.forEach((b) => b.classList.remove("selected"));
+          btn.classList.add("selected");
+
+          selectedId = btn.dataset.choiceId;
+          answerBtn.disabled = false;
+          answerBtn.classList.remove("disabled");
         });
+      });
 
-        const resultText = document.getElementById("resultText");
+      /* 回答 */
+      answerBtn.addEventListener("click", () => {
+        if (answered || !selectedId) return;
+        answered = true;
 
-        answerBtn.addEventListener("click", () => {
-          resultBox.classList.remove("hidden", "correct", "wrong");
+        resultBox.classList.remove("hidden", "correct", "wrong");
 
-          const selectedBtn = document.querySelector(
-            `.answer-btn[data-choice-id="${selectedChoiceId}"]`
-          );
+        buttons.forEach((btn) => {
+          const id = btn.dataset.choiceId;
 
-          if (selectedChoiceId === correctChoiceId) {
-            resultBox.classList.add("correct");
-            resultText.textContent = "正解！";
-            selectedBtn.classList.add("correct");
-          } else {
-            resultBox.classList.add("wrong");
-            resultText.textContent = "不正解！";
-            selectedBtn.classList.add("wrong");
+          btn.classList.remove("correct", "wrong");
+
+          if (id === correctId) {
+            btn.classList.add("correct");
+          } else if (id === selectedId) {
+            btn.classList.add("wrong");
           }
 
-          // 再操作防止
-          answerBtn.disabled = true;
-          answerButtons.forEach((btn) => {
-            btn.style.pointerEvents = "none";
-          });
+          btn.style.pointerEvents = "none";
         });
-      </script>
-    </div>
+
+        if (selectedId === correctId) {
+          resultText.textContent = "正解！";
+          resultBox.classList.add("correct");
+          isCorrectInput.value = "1";
+        } else {
+          resultText.textContent = "不正解！";
+          resultBox.classList.add("wrong");
+          isCorrectInput.value = "0";
+        }
+
+        answerBtn.disabled = true;
+      });
+
+      /* Explanation modal */
+      explanationBtn.addEventListener("click", () => {
+        explainModal.classList.remove("hidden");
+      });
+
+      closeExplain.addEventListener("click", () => {
+        explainModal.classList.add("hidden");
+      });
+    </script>
+
+    {% endif %}
   </body>
 </html>

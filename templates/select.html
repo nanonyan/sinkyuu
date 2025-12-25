@@ -11,9 +11,9 @@
     <div class="select" style="background-color: #faf8f2">
       <h1>Select a question</h1>
 
-      <button class="main-btn">Cashier service</button>
-      <button class="main-btn">Conversation during stocking</button>
-      <button class="main-btn">Handling complaints</button>
+      <button class="main-btn">Cashier Service</button>
+      <button class="main-btn">Conversation during Stocking</button>
+      <button class="main-btn">Handling Complaints</button>
       <button class="main-btn">Shuffle</button>
     </div>
 
@@ -77,7 +77,7 @@
         const genre = encodeURIComponent(selectedMain);
         const level = encodeURIComponent(selectedLevel);
 
-        window.location.href = `/question?genre=${genre}&level=${level}`;
+        window.location.href = `/question?genre=${genre}&level=${level}&reset=1`;
       });
 
       noBtn.addEventListener("click", () => {

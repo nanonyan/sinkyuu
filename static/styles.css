@@ -997,13 +997,13 @@ body {
 }
 
 .question .answer-btn.selected {
-  background-color: #6cb1e9;
+  background-color: #a4ce00;
   color: white;
-  border-color: #6cb1e9;
+  border-color: #a4ce00;
 }
 
 .question .answer-btn.correct {
-  background-color: #a4ce00;
+  background-color: #05d202;
 }
 
 .question .answer-btn.wrong {
@@ -1078,4 +1078,132 @@ body {
   padding-left: 55px;
   padding-right: 55px;
   min-width: 170px;
+}
+
+/* ===== Explanation Modal ===== */
+.explain-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 2000;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.explain-modal.hidden {
+  display: none;
+}
+
+.explain-modal-content {
+  background: #ffffff;
+  width: 90%;
+  max-width: 400px;
+  padding: 20px;
+  border-radius: 12px;
+  position: relative;
+  color: #000;
+}
+
+.explain-close {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  border: none;
+  background: none;
+  font-size: 1.4rem;
+  cursor: pointer;
+}
+
+.explain-modal-content h2 {
+  font-weight: bold;
+  color: #000;
+  margin-bottom: 16px;
+}
+
+.explain-modal-content p {
+  color: #000;
+}
+
+/* ===== Explanation Modal Close Button ===== */
+.explain-footer {
+  margin-top: 20px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.explain-close-btn {
+  background-color: #414141;
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 18px;
+  font-size: 0.9rem;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+.explain-close-btn:hover {
+  opacity: 0.85;
+}
+
+.question-box .question-image {
+  display: block;
+  max-width: 100%;
+  height: auto;
+
+  margin-top: 16px;
+
+  background: transparent;
+}
+
+.question-box .question-image {
+  background: transparent !important;
+}
+
+/* ===== Result score ===== */
+.result-score {
+  display: flex;
+  justify-content: center;
+  align-items: baseline;
+  gap: 8px;
+  margin: 32px 0;
+}
+
+.score-correct,
+.score-slash,
+.score-total {
+  color: #000;
+  font-weight: bold;
+}
+
+.score-correct {
+  font-size: 64px;
+}
+
+.score-slash {
+  font-size: 48px;
+}
+
+.score-total {
+  font-size: 48px;
+}
+
+.question.result-page {
+  display: block !important;
+  width: 100% !important;
+  max-width: none !important;
+}
+
+.result-page .result-buttons .result-btn {
+  width: 100% !important;
+  max-width: 480px !important;
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  margin: 12px auto;
+  padding: 14px 0;
+  text-align: center;
+  font-size: 1rem;
 }
