@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Account</title>
+    <link rel="stylesheet" href="/static/styles.css?v=2" />
+  </head>
+
+  <body>
+    <div class="select">
+      <h1>Account</h1>
+
+      {% if user %}
+        <div class="profile-user">
+          <div class="profile-user__name">{{ user.name or 'User' }}</div>
+          <div class="profile-user__email">{{ user.email }}</div>
+          <div class="profile-user__points">Points: {{ points }}</div>
+        </div>
+      {% endif %}
+
+      <p style="max-width: 360px; opacity: 0.7;">※この画面はダミーです</p>
+    </div>
+
+    {% include "_bottom_nav.html" %}
+  </body>
+</html>

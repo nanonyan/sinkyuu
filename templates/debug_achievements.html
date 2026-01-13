@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Achievements Debug</title>
+    <link rel="stylesheet" href="/static/styles.css?v=2" />
+  </head>
+
+  <body>
+    <div class="select">
+      <h1>Achievements Debug</h1>
+
+      <div style="width: 100%; max-width: 480px;">
+        <p style="margin: 6px 0; opacity: 0.8;">mode: {{ mode }}</p>
+        {% if stats %}
+          <p style="margin: 6px 0; opacity: 0.8;">
+            total_questions={{ stats.total_questions }}, total_correct={{ stats.total_correct }}, total_score={{ stats.total_score }},
+            quizzes_completed={{ stats.quizzes_completed }}, accuracy={{ stats.accuracy }}%
+          </p>
+        {% endif %}
+      </div>
+
+      {% if achievements %}
+        <div style="width: 100%; max-width: 480px; overflow-x: auto;">
+          <table class="table is-striped is-fullwidth" style="background: #fff;">
+            <thead>
+              <tr>
+                <th>id</th>
+                <th>name</th>
+                <th>type</th>
+                <th>cond</th>
+                <th>earned</th>
+                <th>badge</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for a in achievements %}
+                <tr>
+                  <td>{{ a.id }}</td>
+                  <td>{{ a.name }}</td>
+                  <td>{{ a.achievement_type }}</td>
+                  <td>{{ a.condition_value }}</td>
+                  <td>{{ 'yes' if a.earned else 'no' }}</td>
+                  <td>
+                    {% if a.badge_image %}
+                      <img src="{{ a.badge_image }}" alt="" style="width: 36px; height: 36px; object-fit: contain;" />
+                    {% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <p>データがありません</p>
+      {% endif %}
+
+      <p style="margin-top: 12px; max-width: 480px; opacity: 0.7;">
+        ※このページはデバッグ用です（URL: /debug/achievements）
+      </p>
+    </div>
+
+    {% include "_bottom_nav.html" %}
+  </body>
+</html>

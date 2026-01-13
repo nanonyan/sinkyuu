@@ -3,40 +3,41 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>プロフィール</title>
+    <title>Achievement</title>
     <link rel="stylesheet" href="/static/styles.css?v=2" />
   </head>
 
   <body>
-    <div class="select">
-      <h1>Profile</h1>
+    <div class="select achievements-page">
+      <h1>Achievement</h1>
 
-      {% if user %}
-      <div class="profile-user">
-        <div class="profile-user__name">{{ user.name or 'User' }}</div>
-        <div class="profile-user__email">{{ user.email }}</div>
-      </div>
+      {% if stats %}
+        <div class="points-summary">Points: {{ stats.total_score }}</div>
       {% endif %}
 
       {% if achievements %}
         {% for a in achievements %}
-          <button type="button" class="profile-menu-item" disabled>
-            <span class="profile-menu-text">
+          <div class="achievement-card{% if not a.earned %} is-locked{% endif %}" aria-label="{{ a.name }}">
+            <div class="achievement-card__text">
               <span class="profile-badge-title">{{ a.name }}</span>
               {% if a.description %}
                 <span class="profile-badge-desc">{{ a.description }}</span>
               {% endif %}
-            </span>
-            <span class="profile-menu-badge-slot" aria-hidden="true">
+              {% if not a.earned %}
+                <span class="achievement-card__status">未獲得</span>
+              {% endif %}
+            </div>
+
+            <div class="achievement-card__badge" aria-hidden="true">
               {% if a.badge_image %}
                 <img
-                  class="profile-badge-image{% if not a.earned %} is-locked{% endif %}"
+                  class="{% if not a.earned %}is-locked{% endif %}"
                   src="{{ a.badge_image }}"
                   alt=""
                 />
               {% endif %}
-            </span>
-          </button>
+            </div>
+          </div>
         {% endfor %}
       {% else %}
         <p>バッジがありません</p>

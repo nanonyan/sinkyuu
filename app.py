@@ -185,6 +185,63 @@ def init_db():
         """
     )
 
+    # データ正規化（emailは小文字、nameは空文字をNULLへ）
+    cur.execute(
+        """
+        UPDATE users
+        SET email = LOWER(email)
+        WHERE email IS NOT NULL AND email <> LOWER(email)
+        """
+    )
+    cur.execute(
+        """
+        UPDATE users
+        SET name = NULLIF(BTRIM(name), '')
+        WHERE name IS NOT NULL
+        """
+    )
+
+    # name（ユーザーネーム）を入力しているユーザー同士で重複がある場合は、
+    # 既存データを壊さない範囲で後続のみサフィックス付与して一意化する。
+    cur.execute(
+        """
+        WITH ranked AS (
+            SELECT id,
+                   name,
+                   ROW_NUMBER() OVER (PARTITION BY LOWER(name) ORDER BY id) AS rn
+            FROM users
+            WHERE name IS NOT NULL AND name <> ''
+        )
+        UPDATE users u
+        SET name = u.name || '_' || u.id
+        FROM ranked r
+        WHERE u.id = r.id AND r.rn > 1
+        """
+    )
+
+    # 一般的な運用に寄せるため、ケース非依存の一意性をDBでも保証する（email/name）
+    # 既存DBが壊れていて作れない場合でもアプリ側チェックでカバーする。
+    try:
+        cur.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS users_email_lower_unique_idx
+            ON users (LOWER(email))
+            """
+        )
+    except Exception as e:
+        print(f"[WARN] users_email_lower_unique_idx を作成できませんでした: {e}")
+
+    try:
+        cur.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS users_name_lower_unique_idx
+            ON users (LOWER(name))
+            WHERE name IS NOT NULL AND name <> ''
+            """
+        )
+    except Exception as e:
+        print(f"[WARN] users_name_lower_unique_idx を作成できませんでした: {e}")
+
     cur.execute("""
         CREATE TABLE IF NOT EXISTS badges (
             id SERIAL PRIMARY KEY,
@@ -212,6 +269,22 @@ def init_db():
             expires_at TIMESTAMP NOT NULL,
             used_at TIMESTAMP,
             created_at TIMESTAMP DEFAULT NOW()
+        )
+        """
+    )
+
+    # ユーザーの学習統計（Achievement 判定用）
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS user_stats (
+            user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+            total_questions INTEGER NOT NULL DEFAULT 0,
+            total_correct INTEGER NOT NULL DEFAULT 0,
+            total_score INTEGER NOT NULL DEFAULT 0,
+            quizzes_completed INTEGER NOT NULL DEFAULT 0,
+            current_streak INTEGER NOT NULL DEFAULT 0,
+            last_study_date DATE,
+            updated_at TIMESTAMP DEFAULT NOW()
         )
         """
     )
@@ -249,17 +322,9 @@ def fetch_user_for_login(cur, identifier: str):
     if not identifier:
         return None
 
-    # 数字だけなら user_id 扱い（既存UIがUser IDだったため）
-    if identifier.isdigit():
-        cur.execute(
-            "SELECT id, password_hash FROM users WHERE id = %s",
-            (int(identifier),),
-        )
-        return cur.fetchone()
-
-    # それ以外は email 扱い
+    # ログインはメールアドレス必須（一般的な運用に合わせる）
     cur.execute(
-        "SELECT id, password_hash FROM users WHERE email = %s",
+        "SELECT id, password_hash FROM users WHERE LOWER(email) = LOWER(%s)",
         (identifier,),
     )
     return cur.fetchone()
@@ -314,8 +379,7 @@ def signup():
 @app.route("/signin", methods=["GET", "POST"])
 def signin():
     if request.method == "POST":
-        # templates/signin.html は userid という名前なので両対応
-        identifier = (request.form.get("email") or request.form.get("userid") or "").strip()
+        identifier = (request.form.get("email") or "").strip()
         password = request.form.get("password") or ""
 
         rl_key = f"signin:{_client_ip()}"
@@ -362,8 +426,27 @@ def get_db_connection():
 def signup_email():
     if request.method == "POST":
         name = (request.form.get("name") or "").strip() or None
-        email = request.form["email"]
+        email = (request.form.get("email") or "").strip().lower()
         password = request.form["password"]
+
+        if not email:
+            flash("Email is required.")
+            return redirect(url_for("signup_email"))
+
+        if name:
+            # ユーザーネームを使うなら重複禁止（ケース非依存）
+            conn_tmp = get_db_connection()
+            try:
+                with conn_tmp.cursor(cursor_factory=RealDictCursor) as cur_tmp:
+                    cur_tmp.execute(
+                        "SELECT 1 FROM users WHERE LOWER(name) = LOWER(%s) LIMIT 1",
+                        (name,),
+                    )
+                    if cur_tmp.fetchone():
+                        flash("This username is already taken.")
+                        return redirect(url_for("signup_email"))
+            finally:
+                conn_tmp.close()
 
         password_hash = generate_password_hash(password)
 
@@ -604,7 +687,10 @@ def logout():
 # =============================
 @app.route("/difficulty")
 def difficulty():
-    return render_template("difficulty.html")
+    genre = (request.args.get("genre") or "").strip()
+    if not genre:
+        return redirect("/select")
+    return render_template("difficulty.html", genre=genre)
 
 @app.route("/frequency")
 def frequency():
@@ -654,8 +740,101 @@ def _grant_badge(cur, user_id: int, badge_code: str):
     )
 
 
+def _ensure_user_stats_table(cur) -> None:
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS user_stats (
+            user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+            total_questions INTEGER NOT NULL DEFAULT 0,
+            total_correct INTEGER NOT NULL DEFAULT 0,
+            total_score INTEGER NOT NULL DEFAULT 0,
+            quizzes_completed INTEGER NOT NULL DEFAULT 0,
+            current_streak INTEGER NOT NULL DEFAULT 0,
+            last_study_date DATE,
+            updated_at TIMESTAMP DEFAULT NOW()
+        )
+        """
+    )
+
+
+def _ensure_user_stats_row(cur, user_id: int) -> None:
+    _ensure_user_stats_table(cur)
+    cur.execute(
+        """
+        INSERT INTO user_stats (user_id)
+        VALUES (%s)
+        ON CONFLICT (user_id) DO NOTHING
+        """,
+        (user_id,),
+    )
+
+
+def _get_app_language() -> str:
+    # settings_language でセットされる値に合わせる
+    return session.get("app_language") or "English"
+
+
+def _pick_localized(row: dict, base_key: str) -> str | None:
+    lang = _get_app_language()
+    if lang == "Hindi":
+        return row.get(f"{base_key}_hi") or row.get(base_key)
+    if lang == "Japanese":
+        return row.get(base_key)
+    # English / default
+    return row.get(f"{base_key}_en") or row.get(base_key)
+
+
+def _update_user_stats_on_answer(*, user_id: int, is_correct: bool) -> None:
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            _ensure_user_stats_row(cur, user_id)
+
+            score_delta = 1 if is_correct else 0
+            cur.execute(
+                """
+                UPDATE user_stats
+                SET
+                    total_questions = total_questions + 1,
+                    total_correct = total_correct + %s,
+                    total_score = total_score + %s,
+                    updated_at = NOW()
+                WHERE user_id = %s
+                """,
+                (1 if is_correct else 0, score_delta, user_id),
+            )
+
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _record_quiz_completed(*, user_id: int) -> None:
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            _ensure_user_stats_row(cur, user_id)
+            cur.execute(
+                """
+                UPDATE user_stats
+                SET quizzes_completed = quizzes_completed + 1, updated_at = NOW()
+                WHERE user_id = %s
+                """,
+                (user_id,),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 @app.route("/profile", methods=["GET", "POST"])
 def profile():
+    # 互換: 旧URLは achievements へ
+    return redirect("/achievements")
+
+
+@app.route("/achievements")
+def achievements():
     user_id = session.get("user_id")
     if not user_id:
         return redirect("/signin")
@@ -663,30 +842,6 @@ def profile():
     conn = get_db_connection()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            # テーブルが未作成でも落ちないよう保険
-            cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS badges (
-                    id SERIAL PRIMARY KEY,
-                    code TEXT UNIQUE NOT NULL,
-                    name TEXT NOT NULL,
-                    description TEXT
-                )
-                """
-            )
-            cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS user_badges (
-                    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                    badge_id INTEGER NOT NULL REFERENCES badges(id) ON DELETE CASCADE,
-                    acquired_at TIMESTAMP DEFAULT NOW(),
-                    PRIMARY KEY (user_id, badge_id)
-                )
-                """
-            )
-
-            _ensure_default_badges(cur)
-
             cur.execute("SELECT id, email, name FROM users WHERE id = %s", (user_id,))
             user = cur.fetchone()
             if not user:
@@ -694,102 +849,237 @@ def profile():
                 conn.commit()
                 return redirect("/signin")
 
-            if request.method == "POST":
-                new_name = (request.form.get("name") or "").strip()
-                cur.execute(
-                    "UPDATE users SET name = %s WHERE id = %s",
-                    (new_name if new_name else None, user_id),
-                )
-                user["name"] = new_name if new_name else None
-
-            # 暫定：プロフィールを開いたらバッジ付与
-            _grant_badge(cur, int(user_id), "profile_opened")
-
-            # 暫定：5問以上プレイしていたらバッジ付与
-            played = int(session.get("question_count") or 0)
-            if played >= 5:
-                _grant_badge(cur, int(user_id), "first_5_questions")
-
-            cur.execute(
-                """
-                SELECT
-                    b.code,
-                    b.name,
-                    b.description,
-                    (ub.user_id IS NOT NULL) AS earned
-                FROM badges b
-                LEFT JOIN user_badges ub
-                    ON ub.badge_id = b.id AND ub.user_id = %s
-                ORDER BY b.id
-                """,
-                (user_id,),
-            )
-            badges = cur.fetchall()
+            achievements_view, _mode, stats_view = _build_achievements_view(cur, user_id=int(user_id))
 
         conn.commit()
     finally:
         conn.close()
 
-    return render_template("profile.html", user=user, badges=badges)
+    return render_template(
+        "achievements.html",
+        user=user,
+        achievements=achievements_view,
+        stats=stats_view,
+    )
+
+
+def _build_achievements_view(cur, *, user_id: int):
+    """Return (achievements_view, mode, stats_dict)"""
+    # user_stats（Achievement 判定用）
+    _ensure_user_stats_row(cur, int(user_id))
+    cur.execute(
+        """
+        SELECT
+            total_questions,
+            total_correct,
+            total_score,
+            quizzes_completed
+        FROM user_stats
+        WHERE user_id = %s
+        """,
+        (user_id,),
+    )
+    stats = cur.fetchone() or {}
+
+    total_questions = int(stats.get("total_questions") or 0)
+    total_correct = int(stats.get("total_correct") or 0)
+    total_score = int(stats.get("total_score") or 0)
+    quizzes_completed = int(stats.get("quizzes_completed") or 0)
+    accuracy = (total_correct * 100.0 / total_questions) if total_questions > 0 else 0.0
+
+    stats_view = {
+        "total_questions": total_questions,
+        "total_correct": total_correct,
+        "total_score": total_score,
+        "quizzes_completed": quizzes_completed,
+        "accuracy": round(accuracy, 1),
+    }
+
+    # achievements テーブルがあるならそれを表示（無い場合は旧バッジをフォールバック）
+    cur.execute("SELECT to_regclass('public.achievements') AS t")
+    has_achievements = bool((cur.fetchone() or {}).get("t"))
+
+    achievements_view = []
+    if has_achievements:
+        cur.execute(
+            """
+            SELECT
+                id,
+                name,
+                name_en,
+                name_hi,
+                description,
+                description_en,
+                description_hi,
+                achievement_type,
+                condition_value,
+                badge_image,
+                badge_color,
+                display_order
+            FROM achievements
+            ORDER BY display_order NULLS LAST, id
+            """
+        )
+        rows = cur.fetchall() or []
+
+        for r in rows:
+            a_type = (r.get("achievement_type") or "").strip()
+            cond = int(r.get("condition_value") or 0)
+
+            # day_streak（streak）機能は廃止
+            if a_type in {"streak", "day_streak"}:
+                continue
+
+            earned = False
+            if a_type == "quiz_completed":
+                earned = quizzes_completed >= cond
+            elif a_type == "accuracy":
+                earned = total_questions > 0 and accuracy >= float(cond)
+            elif a_type == "total_score":
+                earned = total_score >= cond
+
+            achievements_view.append(
+                {
+                    "id": r.get("id"),
+                    "name": _pick_localized(r, "name") or "",
+                    "description": _pick_localized(r, "description") or "",
+                    "achievement_type": a_type,
+                    "condition_value": cond,
+                    "badge_image": r.get("badge_image"),
+                    "badge_color": r.get("badge_color"),
+                    "earned": earned,
+                }
+            )
+
+        return achievements_view, "achievements", stats_view
+
+    # 旧バッジ（既存のDBでも落ちないように）
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS badges (
+            id SERIAL PRIMARY KEY,
+            code TEXT UNIQUE NOT NULL,
+            name TEXT NOT NULL,
+            description TEXT
+        )
+        """
+    )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS user_badges (
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            badge_id INTEGER NOT NULL REFERENCES badges(id) ON DELETE CASCADE,
+            acquired_at TIMESTAMP DEFAULT NOW(),
+            PRIMARY KEY (user_id, badge_id)
+        )
+        """
+    )
+    _ensure_default_badges(cur)
+    cur.execute(
+        """
+        SELECT
+            NULL::INTEGER AS id,
+            b.name,
+            COALESCE(b.description, '') AS description,
+            NULL::TEXT AS achievement_type,
+            0::INTEGER AS condition_value,
+            NULL::TEXT AS badge_image,
+            NULL::TEXT AS badge_color,
+            (ub.user_id IS NOT NULL) AS earned
+        FROM badges b
+        LEFT JOIN user_badges ub
+            ON ub.badge_id = b.id AND ub.user_id = %s
+        ORDER BY b.id
+        """,
+        (user_id,),
+    )
+    return (cur.fetchall() or []), "badges", stats_view
+
+
+@app.route("/debug/achievements")
+def debug_achievements():
+    user_id = session.get("user_id")
+    if not user_id:
+        return redirect("/signin")
+
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT id, email, name FROM users WHERE id = %s", (user_id,))
+            user = cur.fetchone()
+            if not user:
+                session.pop("user_id", None)
+                conn.commit()
+                return redirect("/signin")
+
+            achievements_view, mode, stats_view = _build_achievements_view(cur, user_id=int(user_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+    return render_template(
+        "debug_achievements.html",
+        user=user,
+        achievements=achievements_view,
+        mode=mode,
+        stats=stats_view,
+    )
+
+
+@app.route("/account")
+def account():
+    user_id = session.get("user_id")
+    if not user_id:
+        return redirect("/signin")
+
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT id, email, name FROM users WHERE id = %s", (user_id,))
+            user = cur.fetchone()
+            if not user:
+                session.pop("user_id", None)
+                conn.commit()
+                return redirect("/signin")
+            _ensure_user_stats_row(cur, int(user_id))
+            cur.execute("SELECT total_score FROM user_stats WHERE user_id = %s", (user_id,))
+            points_row = cur.fetchone() or {}
+            points = int(points_row.get("total_score") or 0)
+        conn.commit()
+    finally:
+        conn.close()
+
+    return render_template("account.html", user=user, points=points)
 
 
 @app.route("/settings")
 def settings():
-    user_id = session.get("user_id")
-    if not user_id:
-        return redirect("/signin")
-    app_language = session.get("app_language") or "English"
-    return render_template("settings.html", app_language=app_language)
+    return redirect("/select")
 
 
 @app.route("/settings/language", methods=["GET", "POST"])
 def settings_language():
-    user_id = session.get("user_id")
-    if not user_id:
-        return redirect("/signin")
-
-    languages = ["English", "Hindi", "Japanese"]
-    current = session.get("app_language") or "English"
-
-    if request.method == "POST":
-        selected = (request.form.get("language") or "").strip()
-        if selected in languages:
-            session["app_language"] = selected
-        return redirect("/settings")
-
-    return render_template("settings_language.html", languages=languages, current=current)
+    return redirect("/select")
 
 
 @app.route("/settings/help")
 def settings_help():
-    user_id = session.get("user_id")
-    if not user_id:
-        return redirect("/signin")
-    return render_template("settings_stub.html", title="Help / FAQ")
+    return redirect("/select")
 
 
 @app.route("/settings/feedback")
 def settings_feedback():
-    user_id = session.get("user_id")
-    if not user_id:
-        return redirect("/signin")
-    return render_template("settings_stub.html", title="Feedback")
+    return redirect("/select")
 
 
 @app.route("/settings/terms")
 def settings_terms():
-    user_id = session.get("user_id")
-    if not user_id:
-        return redirect("/signin")
-    return render_template("settings_stub.html", title="Terms of Service")
+    return redirect("/select")
 
 
 @app.route("/settings/privacy")
 def settings_privacy():
-    user_id = session.get("user_id")
-    if not user_id:
-        return redirect("/signin")
-    return render_template("settings_stub.html", title="Privacy Policy")
+    return redirect("/select")
 
 @app.route("/question", methods=["GET", "POST"])
 def question():
@@ -830,6 +1120,7 @@ def question():
         session["used_question_ids"] = []
         session["question_count"] = 0
         session["correct_count"] = 0
+        session["quiz_completion_recorded"] = False
 
     # =========================
     # POST（Next）
@@ -846,6 +1137,11 @@ def question():
         
         if is_correct == "1":
             session["correct_count"] += 1
+
+        # ログイン済みならDBへ学習統計を反映（Achievement判定に使う）
+        uid = session.get("user_id")
+        if uid:
+            _update_user_stats_on_answer(user_id=int(uid), is_correct=(is_correct == "1"))
 
         return redirect(url_for("question", genre=genre_en, level=level))
 
@@ -895,6 +1191,11 @@ def question():
         if not question:
             total = session.get("question_count", 0)
             correct = session.get("correct_count", 0)
+
+            uid = session.get("user_id")
+            if uid and total > 0 and not session.get("quiz_completion_recorded"):
+                _record_quiz_completed(user_id=int(uid))
+                session["quiz_completion_recorded"] = True
 
             #session.clear()
 
