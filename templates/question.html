@@ -43,7 +43,7 @@
 
         {% if question.image_url %}
         <img
-          src="{{ question.image_url }}"
+          src="{{ question.image_url | safe }}"
           alt="question image"
           class="question-image"
         />
@@ -55,10 +55,6 @@
         <h2>{{ choice.choice_text }}</h2>
       </a>
       {% endfor %}
-
-      <button id="answerBtn" class="answer-submit disabled" disabled>
-        Answer
-      </button>
 
       <!-- ===== 正解 / 不正解 表示 ===== -->
       <div id="resultBox" class="result-box hidden">
@@ -74,7 +70,11 @@
           </button>
 
           <form method="post">
-            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}" />
+            <input
+              type="hidden"
+              name="_csrf_token"
+              value="{{ csrf_token() }}"
+            />
             <input type="hidden" name="question_id" value="{{ question.id }}" />
             <input
               type="hidden"
@@ -104,8 +104,18 @@
 
     <!-- ================= JavaScript ================= -->
     <script>
-      const buttons = document.querySelectorAll(".answer-btn");
-      const answerBtn = document.getElementById("answerBtn");
+      const questionEl = document.querySelector(".question");
+
+      const buttons = Array.from(questionEl.querySelectorAll(".answer-btn"));
+
+      // ===== ランダム化 =====
+      for (let i = buttons.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [buttons[i], buttons[j]] = [buttons[j], buttons[i]];
+      }
+
+      buttons.forEach((btn) => questionEl.appendChild(btn));
+
       const resultBox = document.getElementById("resultBox");
       const resultText = document.getElementById("resultText");
       const correctId = document.querySelector(".question").dataset.correctId;
@@ -115,7 +125,6 @@
       const closeExplain = document.getElementById("closeExplain");
       const isCorrectInput = document.getElementById("isCorrectInput");
 
-      let selectedId = null;
       let answered = false;
 
       /* 選択 */
@@ -124,47 +133,34 @@
           e.preventDefault();
           if (answered) return;
 
-          buttons.forEach((b) => b.classList.remove("selected"));
-          btn.classList.add("selected");
+          answered = true;
+          const selectedId = btn.dataset.choiceId;
 
-          selectedId = btn.dataset.choiceId;
-          answerBtn.disabled = false;
-          answerBtn.classList.remove("disabled");
-        });
-      });
+          resultBox.classList.remove("hidden", "correct", "wrong");
 
-      /* 回答 */
-      answerBtn.addEventListener("click", () => {
-        if (answered || !selectedId) return;
-        answered = true;
+          buttons.forEach((b) => {
+            const id = b.dataset.choiceId;
+            b.classList.remove("correct", "wrong", "selected");
 
-        resultBox.classList.remove("hidden", "correct", "wrong");
+            if (id === correctId) {
+              b.classList.add("correct");
+            } else if (id === selectedId) {
+              b.classList.add("wrong");
+            }
 
-        buttons.forEach((btn) => {
-          const id = btn.dataset.choiceId;
+            b.style.pointerEvents = "none";
+          });
 
-          btn.classList.remove("correct", "wrong");
-
-          if (id === correctId) {
-            btn.classList.add("correct");
-          } else if (id === selectedId) {
-            btn.classList.add("wrong");
+          if (selectedId === correctId) {
+            resultText.textContent = "正解！";
+            resultBox.classList.add("correct");
+            isCorrectInput.value = "1";
+          } else {
+            resultText.textContent = "不正解！";
+            resultBox.classList.add("wrong");
+            isCorrectInput.value = "0";
           }
-
-          btn.style.pointerEvents = "none";
         });
-
-        if (selectedId === correctId) {
-          resultText.textContent = "正解！";
-          resultBox.classList.add("correct");
-          isCorrectInput.value = "1";
-        } else {
-          resultText.textContent = "不正解！";
-          resultBox.classList.add("wrong");
-          isCorrectInput.value = "0";
-        }
-
-        answerBtn.disabled = true;
       });
 
       /* Explanation modal */
@@ -176,8 +172,6 @@
         explainModal.classList.add("hidden");
       });
     </script>
-      {% include "_bottom_nav.html" %}
-
-    {% endif %}
+    {% include "_bottom_nav.html" %} {% endif %}
   </body>
 </html>

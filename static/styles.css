@@ -1358,12 +1358,6 @@ body {
   cursor: not-allowed;
 }
 
-.question .answer-btn.selected {
-  background-color: #a4ce00;
-  color: white;
-  border-color: #a4ce00;
-}
-
 .question .answer-btn.correct {
   background-color: #05d202;
 }
