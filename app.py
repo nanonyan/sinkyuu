@@ -15,11 +15,27 @@ from collections import deque
 # =============================
 # 初期設定
 # =============================
-load_dotenv()
+# ローカル開発でシェルに古い/壊れた環境変数が残っていても、.env を優先して読み込む。
+# 本番環境では通常 .env を置かないため挙動は変わらない。
+load_dotenv(override=True)
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY") or "dev-secret-key"
-DATABASE_URL = os.environ.get("DATABASE_URL")
+
+
+def database_url() -> str | None:
+    return os.environ.get("DATABASE_URL")
+
+
+def _select_pg_sslmode(db_url: str) -> str:
+    sslmode = os.environ.get("PGSSLMODE")
+    if sslmode:
+        return sslmode
+
+    # ローカルの Postgres は SSL 無効なことが多いので推測する（本番は require を既定）
+    if "localhost" in db_url or "127.0.0.1" in db_url:
+        return "disable"
+    return "require"
 
 
 def _is_production() -> bool:
@@ -116,7 +132,7 @@ def _clear_attempts(key: str) -> None:
 
 
 def require_database_url():
-    if not DATABASE_URL:
+    if not database_url():
         raise RuntimeError(
             "DATABASE_URL が未設定です。.env に DATABASE_URL=... を設定するか、環境変数で指定してください。"
         )
@@ -126,8 +142,10 @@ def require_database_url():
 # =============================
 def get_db():
     require_database_url()
+    db_url = database_url() or ""
     return psycopg2.connect(
-        DATABASE_URL,
+        db_url,
+        sslmode=_select_pg_sslmode(db_url),
         cursor_factory=psycopg2.extras.DictCursor
     )
 
@@ -293,7 +311,7 @@ def init_db():
     cur.close()
     conn.close()
 
-if DATABASE_URL:
+if database_url():
     init_db()
 else:
     print("[WARN] DATABASE_URL が未設定のため DB 初期化をスキップします")
@@ -411,21 +429,15 @@ def signin():
 # =============================
 def get_db_connection():
     require_database_url()
-    database_url = DATABASE_URL or ""
-    sslmode = os.environ.get("PGSSLMODE")
-    if not sslmode:
-        # ローカルの Postgres は SSL 無効なことが多いので推測する（本番は require を既定）
-        if "localhost" in database_url or "127.0.0.1" in database_url:
-            sslmode = "disable"
-        else:
-            sslmode = "require"
-
-    return psycopg2.connect(database_url, sslmode=sslmode)
+    db_url = database_url() or ""
+    return psycopg2.connect(db_url, sslmode=_select_pg_sslmode(db_url))
 
 @app.route("/signup-email", methods=["GET", "POST"])
 def signup_email():
     if request.method == "POST":
-        name = (request.form.get("name") or "").strip() or None
+        name = (request.form.get("name") or "").strip()
+        if not name:
+            name = ""
         email = (request.form.get("email") or "").strip().lower()
         password = request.form["password"]
 
@@ -677,7 +689,7 @@ def reset_password():
 # =============================
 # ログアウト
 # =============================
-@app.route("/logout")
+@app.route("/logout", methods=["POST"])
 def logout():
     session.pop("user_id", None)
     return redirect("/signin")
@@ -829,8 +841,71 @@ def _record_quiz_completed(*, user_id: int) -> None:
 
 @app.route("/profile", methods=["GET", "POST"])
 def profile():
-    # 互換: 旧URLは achievements へ
-    return redirect("/achievements")
+    user_id = session.get("user_id")
+    if not user_id:
+        return redirect("/signin")
+
+    if request.method == "POST":
+        name = (request.form.get("name") or "").strip()
+        if not name:
+            name = ""
+        email = (request.form.get("email") or "").strip().lower()
+        password = request.form.get("password") or ""
+
+        if not email:
+            flash("Email is required.")
+            return redirect("/profile")
+
+        conn = get_db_connection()
+        try:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT id FROM users WHERE id = %s", (user_id,))
+                if not cur.fetchone():
+                    session.pop("user_id", None)
+                    conn.commit()
+                    return redirect("/signin")
+
+                fields = ["name = %s", "email = %s", "updated_at = NOW()"]
+                params: list[object] = [name, email]
+
+                if password.strip():
+                    fields.insert(2, "password_hash = %s")
+                    params.insert(2, generate_password_hash(password))
+
+                params.append(user_id)
+                cur.execute(
+                    f"UPDATE users SET {', '.join(fields)} WHERE id = %s",
+                    tuple(params),
+                )
+
+            conn.commit()
+
+        except psycopg2.errors.UniqueViolation:
+            conn.rollback()
+            flash("This email is already registered.")
+        finally:
+            conn.close()
+
+        return redirect("/profile")
+
+    conn = get_db_connection()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT id, email, name FROM users WHERE id = %s", (user_id,))
+            user = cur.fetchone()
+            if not user:
+                session.pop("user_id", None)
+                conn.commit()
+                return redirect("/signin")
+
+        conn.commit()
+    finally:
+        conn.close()
+
+    return render_template(
+        "profile.html",
+        user=user,
+    )
 
 
 @app.route("/achievements")
@@ -1064,22 +1139,22 @@ def settings_language():
 
 @app.route("/settings/help")
 def settings_help():
-    return redirect("/select")
+    return render_template("settings_stub.html", title="Help / FAQ")
 
 
 @app.route("/settings/feedback")
 def settings_feedback():
-    return redirect("/select")
+    return render_template("settings_stub.html", title="Feedback")
 
 
 @app.route("/settings/terms")
 def settings_terms():
-    return redirect("/select")
+    return render_template("settings_stub.html", title="Terms of Service")
 
 
 @app.route("/settings/privacy")
 def settings_privacy():
-    return redirect("/select")
+    return render_template("settings_stub.html", title="Privacy Policy")
 
 @app.route("/question", methods=["GET", "POST"])
 def question():
@@ -1266,3 +1341,5 @@ def debug_categories():
 # =============================
 if __name__ == "__main__":
     app.run(debug=True, port=8000)
+
+# test

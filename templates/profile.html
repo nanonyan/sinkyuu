@@ -7,40 +7,57 @@
     <link rel="stylesheet" href="/static/styles.css?v=2" />
   </head>
 
-  <body>
-    <div class="select">
-      <h1>Profile</h1>
-
-      {% if user %}
-      <div class="profile-user">
-        <div class="profile-user__name">{{ user.name or 'User' }}</div>
-        <div class="profile-user__email">{{ user.email }}</div>
+  <body style="background: #f5f6f8">
+    <div class="profile-page" style="background-color: #faf8f2">
+      <div class="profile-header">
+        <a class="profile-back" href="/account" aria-label="戻る">
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M15 6l-6 6 6 6" />
+          </svg>
+        </a>
+        <h1>Account</h1>
       </div>
-      {% endif %}
 
-      {% if achievements %}
-        {% for a in achievements %}
-          <button type="button" class="profile-menu-item" disabled>
-            <span class="profile-menu-text">
-              <span class="profile-badge-title">{{ a.name }}</span>
-              {% if a.description %}
-                <span class="profile-badge-desc">{{ a.description }}</span>
-              {% endif %}
-            </span>
-            <span class="profile-menu-badge-slot" aria-hidden="true">
-              {% if a.badge_image %}
-                <img
-                  class="profile-badge-image{% if not a.earned %} is-locked{% endif %}"
-                  src="{{ a.badge_image }}"
-                  alt=""
-                />
-              {% endif %}
-            </span>
-          </button>
-        {% endfor %}
-      {% else %}
-        <p>バッジがありません</p>
-      {% endif %}
+      <h2 class="profile-section-title">Profile</h2>
+
+      <form method="post" class="profile-form">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}" />
+
+        <label class="profile-field">
+          <span class="profile-field__label">Name</span>
+          <input
+            class="profile-field__input"
+            type="text"
+            name="name"
+            value="{{ user.name or '' }}"
+            placeholder="Your name"
+          />
+        </label>
+
+        <label class="profile-field">
+          <span class="profile-field__label">Email Address</span>
+          <input
+            class="profile-field__input"
+            type="email"
+            name="email"
+            value="{{ user.email or '' }}"
+            placeholder="email@example.com"
+            required
+          />
+        </label>
+
+        <label class="profile-field">
+          <span class="profile-field__label">Password</span>
+          <input
+            class="profile-field__input"
+            type="password"
+            name="password"
+            placeholder="New password"
+          />
+        </label>
+
+        <button type="submit" class="profile-save">Save</button>
+      </form>
     </div>
 
     {% include "_bottom_nav.html" %}

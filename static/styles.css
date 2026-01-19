@@ -1125,6 +1125,165 @@ body {
   font-weight: 800;
   color: rgb(211, 68, 68);
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.12);
+  cursor: pointer;
+}
+
+.logout-modal {
+  position: fixed;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+}
+
+.logout-modal.is-active {
+  display: flex;
+}
+
+.logout-modal__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.logout-modal__dialog {
+  position: relative;
+  width: min(320px, 90vw);
+  background: #ffffff;
+  border-radius: 16px;
+  padding: 18px 16px 16px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  text-align: center;
+}
+
+.logout-modal__title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin-bottom: 14px;
+}
+
+.logout-modal__actions {
+  display: flex;
+  gap: 14px;
+  justify-content: center;
+}
+
+.logout-modal__btn {
+  min-width: 90px;
+  padding: 10px 18px;
+  border: none;
+  border-radius: 10px;
+  color: #ffffff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.logout-modal__btn--yes {
+  background: #6f86ff;
+}
+
+.logout-modal__btn--no {
+  background: #ff4b4b;
+}
+
+/* =============================
+   Profile settings page
+   ============================= */
+
+.profile-page {
+  width: 100%;
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 20px;
+  min-height: 100vh;
+}
+
+.profile-header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 8px 0 12px;
+}
+
+.profile-header h1 {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #000;
+}
+
+.profile-back {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #000;
+  text-decoration: none;
+}
+
+.profile-back svg {
+  width: 22px;
+  height: 22px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.profile-section-title {
+  width: 100%;
+  max-width: 360px;
+  margin: 8px auto 12px;
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #000;
+}
+
+.profile-form {
+  width: 100%;
+  max-width: 360px;
+  margin: 0 auto;
+  display: grid;
+  gap: 16px;
+}
+
+.profile-field {
+  display: grid;
+  gap: 8px;
+}
+
+.profile-field__label {
+  font-weight: 700;
+  color: #000;
+}
+
+.profile-field__input {
+  width: 100%;
+  border: 1.5px solid #000;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-weight: 600;
+  background: #ffffff;
+  color: #000;
+}
+
+.profile-save {
+  width: 100%;
+  border: none;
+  border-radius: 999px;
+  padding: 12px 16px;
+  background: #a4ce00;
+  color: #ffffff;
+  font-weight: 700;
+  cursor: pointer;
+  margin-top: 6px;
 }
 
 .settings-language {
