@@ -880,11 +880,11 @@ body {
 }
 
 .difficulty-level-btn.normal {
-  background: #2196f3;
+  background: #f4b400;
 }
 
 .difficulty-level-btn.difficult {
-  background: #f44336;
+  background: #7e57c2;
 }
 
 /* profile page menu (same cards, with badge space on the right) */
@@ -1359,7 +1359,7 @@ body {
 }
 
 .question .answer-btn.correct {
-  background-color: #05d202;
+  background-color: #708aff;
 }
 
 .question .answer-btn.wrong {
@@ -1394,7 +1394,7 @@ body {
 }
 
 .result-box.correct {
-  background-color: #05d202;
+  background-color: #708aff;
 }
 
 .result-box.wrong {

@@ -1090,8 +1090,10 @@ def question():
     if not genre_en or not level:
         return "パラメータが不足しています"
 
+    is_shuffle = genre_en.lower() == "shuffle"
+
     # Shuffle はカテゴリ指定なしで出題
-    genre_filter = None if genre_en.lower() == "shuffle" else genre_en
+    genre_filter = None if is_shuffle else genre_en
 
     if reset == "1":
         # クイズの状態だけリセットしたいが、ログイン状態まで消すと
@@ -1158,6 +1160,8 @@ def question():
             where_parts.append("q.difficulty = %s")
             params.append(difficulty)
 
+        order_by = "RANDOM()" if is_shuffle else "q.id"
+
         sql = f"""
             SELECT
                 q.id,
@@ -1171,7 +1175,7 @@ def question():
             LEFT JOIN category_images ci
                 ON ci.category_id = c.id
             WHERE {' AND '.join(where_parts)}
-            ORDER BY q.id
+            ORDER BY {order_by}
             LIMIT 1
         """
         cur.execute(sql, tuple(params))
