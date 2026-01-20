@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ja">
   <head>
     <meta charset="UTF-8" />
@@ -43,6 +43,7 @@
 
         {% if question.image_url %}
         <img
+          id="questionImage"
           src="{{ question.image_url | safe }}"
           alt="question image"
           class="question-image"
@@ -104,6 +105,10 @@
 
     <!-- ================= JavaScript ================= -->
     <script>
+      const correctImageBase64 = "{{ correct_image | safe }}";
+      const wrongImageBase64 = "{{ wrong_image | safe }}";
+      const questionImage = document.getElementById("questionImage");
+
       const questionEl = document.querySelector(".question");
 
       const buttons = Array.from(questionEl.querySelectorAll(".answer-btn"));
@@ -155,10 +160,18 @@
             resultText.textContent = "正解！";
             resultBox.classList.add("correct");
             isCorrectInput.value = "1";
+
+            if (questionImage && correctImageBase64) {
+              questionImage.src = correctImageBase64;
+            }
           } else {
             resultText.textContent = "不正解！";
             resultBox.classList.add("wrong");
             isCorrectInput.value = "0";
+
+            if (questionImage && wrongImageBase64) {
+              questionImage.src = wrongImageBase64;
+            }
           }
         });
       });

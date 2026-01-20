@@ -1445,6 +1445,24 @@ def question():
             .replace(" ", "")
         )
 
+        # 正解・不正解用画像（base64）
+        correct_image = None
+        wrong_image = None
+
+        cur2 = None
+        conn2 = get_db_connection()
+        try:
+            cur2 = conn2.cursor()
+            cur2.execute("SELECT image_url FROM images WHERE id = 2")
+            correct_image = cur2.fetchone()[0]
+
+            cur2.execute("SELECT image_url FROM images WHERE id = 3")
+            wrong_image = cur2.fetchone()[0]
+        finally:
+            if cur2:
+                cur2.close()
+            conn2.close()
+
 
     return render_template(
         "question.html",
@@ -1460,7 +1478,9 @@ def question():
         },
         choices=choices,
         genre=genre_en,
-        level=level
+        level=level,
+        correct_image=correct_image,
+        wrong_image=wrong_image,
     )
 
 
