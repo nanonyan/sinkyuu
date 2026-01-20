@@ -1116,6 +1116,13 @@ body {
   stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;
+  /* ブラウザのリンク色（青）に引っ張られないよう、矢印は常にニュートラルな色にする */
+  color: #9ca3af;
+}
+
+/* 押せない行に矢印があると誤解を招くので消す */
+.settings-row--disabled .settings-chevron {
+  display: none;
 }
 
 .settings-logout {

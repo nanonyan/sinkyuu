@@ -12,21 +12,24 @@ import time
 from collections import deque
 
 
+
+
 # =============================
 # 初期設定
 # =============================
-# ローカル開発でシェルに古い/壊れた環境変数が残っていても、.env を優先して読み込む。
-# 本番環境では通常 .env を置かないため挙動は変わらない。
+
 load_dotenv(override=True)
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY") or "dev-secret-key"
 
 
+# DB接続先（PostgreSQL）
 def database_url() -> str | None:
     return os.environ.get("DATABASE_URL")
 
 
+# pgのsslmodeは環境差が大きいので、最低限の自動判定を入れている
 def _select_pg_sslmode(db_url: str) -> str:
     sslmode = os.environ.get("PGSSLMODE")
     if sslmode:
@@ -38,6 +41,7 @@ def _select_pg_sslmode(db_url: str) -> str:
     return "require"
 
 
+# デプロイ環境判定（CookieのSecureやdebug切替に使う）
 def _is_production() -> bool:
     return (
         (os.environ.get("FLASK_ENV") or "").lower() == "production"
@@ -61,6 +65,7 @@ if app.secret_key == "dev-secret-key" and IS_PRODUCTION:
     )
 
 
+# フォームPOST用のCSRFトークン（セッションに保持）
 def csrf_token() -> str:
     token = session.get("_csrf_token")
     if not token:
@@ -72,6 +77,7 @@ def csrf_token() -> str:
 app.jinja_env.globals["csrf_token"] = csrf_token
 
 
+# セッション内トークンとフォームのトークンが一致するか
 def _validate_csrf() -> None:
     session_token = session.get("_csrf_token")
     form_token = request.form.get("_csrf_token")
@@ -90,6 +96,7 @@ def _csrf_protect():
         _validate_csrf()
 
 
+# ログイン試行の簡易レート制限（IP単位）
 _LOGIN_ATTEMPTS: dict[str, deque[float]] = {}
 
 
@@ -313,12 +320,14 @@ def init_db():
     cur.close()
     conn.close()
 
+# import時にテーブル作成/補完まで済ませておく（ローカル開発向け）
 if database_url():
     init_db()
 else:
     print("[WARN] DATABASE_URL が未設定のため DB 初期化をスキップします")
 
 
+# ログイン用パスワード検証（新形式/旧形式の両対応）
 def verify_password(stored_hash: str | None, password: str) -> bool:
     if not stored_hash:
         return False
@@ -337,6 +346,7 @@ def verify_password(stored_hash: str | None, password: str) -> bool:
     return False
 
 
+# ログインに必要な最小情報だけ取る（存在確認 + hash）
 def fetch_user_for_login(cur, identifier: str):
     identifier = (identifier or "").strip()
     if not identifier:
@@ -429,6 +439,7 @@ def signin():
 # =============================
 # Email サインイン（signup_email.html 用）
 # =============================
+# get_db() と違い、こちらはアプリ内の大半の処理で使う素の接続
 def get_db_connection():
     require_database_url()
     db_url = database_url() or ""
@@ -691,6 +702,7 @@ def reset_password():
 # =============================
 # ログアウト
 # =============================
+# GETでログアウトできるとCSRFで踏まれやすいので、POST専用にしている
 @app.route("/logout", methods=["POST"])
 def logout():
     session.pop("user_id", None)
@@ -783,6 +795,35 @@ def _ensure_user_stats_row(cur, user_id: int) -> None:
     )
 
 
+def _ensure_user_category_stats_table(cur) -> None:
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS user_category_stats (
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            genre TEXT NOT NULL,
+            total_questions INTEGER NOT NULL DEFAULT 0,
+            total_correct INTEGER NOT NULL DEFAULT 0,
+            total_score INTEGER NOT NULL DEFAULT 0,
+            quizzes_completed INTEGER NOT NULL DEFAULT 0,
+            updated_at TIMESTAMP DEFAULT NOW(),
+            PRIMARY KEY (user_id, genre)
+        )
+        """
+    )
+
+
+def _ensure_user_category_stats_row(cur, user_id: int, genre: str) -> None:
+    _ensure_user_category_stats_table(cur)
+    cur.execute(
+        """
+        INSERT INTO user_category_stats (user_id, genre)
+        VALUES (%s, %s)
+        ON CONFLICT (user_id, genre) DO NOTHING
+        """,
+        (user_id, genre),
+    )
+
+
 def _get_app_language() -> str:
     # settings_language でセットされる値に合わせる
     return session.get("app_language") or "English"
@@ -798,7 +839,7 @@ def _pick_localized(row: dict, base_key: str) -> str | None:
     return row.get(f"{base_key}_en") or row.get(base_key)
 
 
-def _update_user_stats_on_answer(*, user_id: int, is_correct: bool) -> None:
+def _update_user_stats_on_answer(*, user_id: int, is_correct: bool, genre: str | None = None) -> None:
     conn = get_db_connection()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -818,12 +859,28 @@ def _update_user_stats_on_answer(*, user_id: int, is_correct: bool) -> None:
                 (1 if is_correct else 0, score_delta, user_id),
             )
 
+            genre_key = (genre or "").strip()
+            if genre_key and genre_key.lower() != "shuffle":
+                _ensure_user_category_stats_row(cur, user_id, genre_key)
+                cur.execute(
+                    """
+                    UPDATE user_category_stats
+                    SET
+                        total_questions = total_questions + 1,
+                        total_correct = total_correct + %s,
+                        total_score = total_score + %s,
+                        updated_at = NOW()
+                    WHERE user_id = %s AND genre = %s
+                    """,
+                    (1 if is_correct else 0, score_delta, user_id, genre_key),
+                )
+
         conn.commit()
     finally:
         conn.close()
 
 
-def _record_quiz_completed(*, user_id: int) -> None:
+def _record_quiz_completed(*, user_id: int, genre: str | None = None) -> None:
     conn = get_db_connection()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -836,6 +893,18 @@ def _record_quiz_completed(*, user_id: int) -> None:
                 """,
                 (user_id,),
             )
+
+            genre_key = (genre or "").strip()
+            if genre_key and genre_key.lower() != "shuffle":
+                _ensure_user_category_stats_row(cur, user_id, genre_key)
+                cur.execute(
+                    """
+                    UPDATE user_category_stats
+                    SET quizzes_completed = quizzes_completed + 1, updated_at = NOW()
+                    WHERE user_id = %s AND genre = %s
+                    """,
+                    (user_id, genre_key),
+                )
         conn.commit()
     finally:
         conn.close()
@@ -972,6 +1041,18 @@ def _build_achievements_view(cur, *, user_id: int):
         "accuracy": round(accuracy, 1),
     }
 
+    # genre別の統計（カテゴリ実績用）
+    cur.execute(
+        """
+        SELECT genre, total_questions, total_correct, total_score, quizzes_completed
+        FROM user_category_stats
+        WHERE user_id = %s
+        """,
+        (user_id,),
+    )
+    category_rows = cur.fetchall() or []
+    category_stats: dict[str, dict] = {r.get("genre"): r for r in category_rows if r.get("genre")}
+
     # achievements テーブルがあるならそれを表示（無い場合は旧バッジをフォールバック）
     cur.execute("SELECT to_regclass('public.achievements') AS t")
     has_achievements = bool((cur.fetchone() or {}).get("t"))
@@ -1008,6 +1089,55 @@ def _build_achievements_view(cur, *, user_id: int):
                 continue
 
             earned = False
+            if not a_type:
+                # 既存DBに achievement_type が入っていない場合の救済。
+                # 例: レジ対応銅/銀/金バッチ はカテゴリ（genre）別のクイズ完了回数で判定する。
+                raw_name = (r.get("name") or "").strip()
+                prefix_to_genre = {
+                    "レジ対応": "Cashier Service",
+                    "品出し": "Conversation during Stocking",
+                    "クレーム対応": "Handling Complaints",
+                }
+                metal_to_threshold = {
+                    "銅": 1,
+                    "銀": 3,
+                    "金": 5,
+                }
+
+                matched_genre = None
+                matched_threshold = None
+                for prefix, genre_key in prefix_to_genre.items():
+                    if raw_name.startswith(prefix):
+                        matched_genre = genre_key
+                        break
+
+                if matched_genre:
+                    for metal, threshold in metal_to_threshold.items():
+                        if metal in raw_name:
+                            matched_threshold = threshold
+                            break
+
+                if matched_genre and matched_threshold:
+                    row_stats = category_stats.get(matched_genre) or {}
+                    g_quizzes_completed = int(row_stats.get("quizzes_completed") or 0)
+                    effective_cond = cond if cond > 0 else int(matched_threshold)
+                    earned = g_quizzes_completed >= effective_cond
+                    a_type = "genre_quiz_completed"
+                    cond = effective_cond
+
+                # 総合（全カテゴリ合算）は全体のquizzes_completedで判定
+                if raw_name.startswith("総合"):
+                    matched_threshold = None
+                    for metal, threshold in metal_to_threshold.items():
+                        if metal in raw_name:
+                            matched_threshold = threshold
+                            break
+                    if matched_threshold:
+                        effective_cond = cond if cond > 0 else int(matched_threshold)
+                        earned = quizzes_completed >= effective_cond
+                        a_type = "quiz_completed"
+                        cond = effective_cond
+
             if a_type == "quiz_completed":
                 earned = quizzes_completed >= cond
             elif a_type == "accuracy":
@@ -1131,11 +1261,13 @@ def account():
 
 @app.route("/settings")
 def settings():
+    # 旧導線の名残。今は設定をselect側に寄せている。
     return redirect("/select")
 
 
 @app.route("/settings/language", methods=["GET", "POST"])
 def settings_language():
+    # UI上は雰囲気だけ残し、実処理はselect側に寄せる（現状は未実装）
     return redirect("/select")
 
 
@@ -1160,6 +1292,8 @@ def settings_privacy():
 
 @app.route("/question", methods=["GET", "POST"])
 def question():
+    # クイズ出題のメイン。
+    # セッションに「出題済みID」「回答数」「正答数」を持ち、DBには統計だけ反映する。
     genre_en = (request.args.get("genre") or "").strip()
     level = request.args.get("level")
     reset = request.args.get("reset")
@@ -1220,7 +1354,7 @@ def question():
         # ログイン済みならDBへ学習統計を反映（Achievement判定に使う）
         uid = session.get("user_id")
         if uid:
-            _update_user_stats_on_answer(user_id=int(uid), is_correct=(is_correct == "1"))
+            _update_user_stats_on_answer(user_id=int(uid), is_correct=(is_correct == "1"), genre=genre_en)
 
         return redirect(url_for("question", genre=genre_en, level=level))
 
@@ -1275,7 +1409,7 @@ def question():
 
             uid = session.get("user_id")
             if uid and total > 0 and not session.get("quiz_completion_recorded"):
-                _record_quiz_completed(user_id=int(uid))
+                _record_quiz_completed(user_id=int(uid), genre=genre_en)
                 session["quiz_completion_recorded"] = True
 
             #session.clear()
@@ -1298,6 +1432,7 @@ def question():
         """, (question["id"],))
         choices = cur.fetchall()
 
+    # choicesの中に正解が1つある前提（DBデータが壊れていると例外になる）
     correct_choice_id = next(c["id"] for c in choices if c["is_correct"])
 
     image_url = question["image_url"]
