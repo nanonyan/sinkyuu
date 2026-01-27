@@ -728,6 +728,9 @@ def ready():
 
 @app.route("/select")
 def select():
+    user_id = session.get("user_id")
+    if not user_id:
+        return redirect("/signin")
     return render_template("select.html")
 
 def level_to_int(level):
